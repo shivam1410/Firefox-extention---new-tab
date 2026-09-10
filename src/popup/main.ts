@@ -38,11 +38,21 @@ async function init(): Promise<void> {
 }
 
 el<HTMLButtonElement>('#pQuick').addEventListener('click', () => {
-  if (!current?.url) return
+  if (!current?.url || !api) return
   const t = current
-  void saveTab({ title: t.title || t.url || '', url: t.url ?? '', favicon: t.favIconUrl }).then((added) => {
+  void (async () => {
+    const box = await api.storage.local.get('notionCfg')
+    if (box['notionCfg']) {
+      setStatus('Saving to Notion…', 'busy')
+      const r = (await api.runtime.sendMessage({ type: 'notion.saveQuick', title: t.title ?? '', url: t.url ?? '' })) as
+        | { ok: boolean; message: string }
+        | undefined
+      setStatus(r?.message ?? 'No response — try again.', r?.ok ? 'ok' : 'err')
+      return
+    }
+    const added = await saveTab({ title: t.title || t.url || '', url: t.url ?? '', favicon: t.favIconUrl })
     setStatus(added ? 'Saved 🔖 — it\'s on your new tab.' : 'Already in your saved tabs.', 'ok')
-  })
+  })()
 })
 
 el<HTMLButtonElement>('#pNotion').addEventListener('click', () => {

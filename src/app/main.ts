@@ -455,21 +455,30 @@ function renderHome(): void {
     b.addEventListener('contextmenu', (e) => ctxMenu(e, n, 'grid'))
     g.appendChild(b)
   }
-  /* saved tabs appear as tiles too (deduped against pinned ones) */
+  /* saved pages appear as tiles too (from Notion when connected; local fallback otherwise) */
   const pinnedUrls = new Set(GRID.filter((x): x is LinkNode => x.type === 'link').map((x) => x.url))
-  const savedTiles = savedTabs.filter((s) => !pinnedUrls.has(s.url))
-  for (const s of savedTiles) {
-    const n = L(s.title, s.url, { favicon: s.favicon })
+  const localByUrl = new Map(savedTabs.map((s) => [s.url, s]))
+  const useNotion = SOURCES.notion.isLive || SOURCES.notion.root.length > 0
+  const savedNodes: LinkNode[] = useNotion
+    ? SOURCES.notion.root.filter((x): x is LinkNode => x.type === 'link' && !pinnedUrls.has(x.url)).slice(0, 24)
+    : savedTabs.filter((s) => !pinnedUrls.has(s.url)).map((s) => L(s.title, s.url, { favicon: s.favicon }))
+  for (const n of savedNodes) {
     const b = document.createElement('div')
     b.className = 'tile'
     b.tabIndex = 0
     b.setAttribute('role', 'button')
-    b.innerHTML = tileIcon(n) + `<span class="lb">${esc(s.title)}</span><span class="savb" title="Saved tab">🔖</span>`
+    b.innerHTML = tileIcon(n) + `<span class="lb">${esc(n.title)}</span><span class="savb" title="Saved${n.notionId ? ' in Notion' : ''}">📔</span>`
     b.addEventListener('click', (e) => {
       if (clickedControl(e)) return
       openNode(n, 'here')
     })
-    b.addEventListener('contextmenu', (e) =>
+    b.addEventListener('contextmenu', (e) => {
+      if (n.notionId) {
+        ctxMenu(e, n, 'notion')
+        return
+      }
+      const s = localByUrl.get(n.url)
+      if (!s) return
       showCtxMenu(e, [
         { lbl: 'Open', on: () => openNode(n, 'here') },
         { lbl: 'Open in new tab', on: () => openNode(n, 'newtab') },
@@ -503,10 +512,11 @@ function renderHome(): void {
             toast(`Removed “${s.title}”`)
           },
         },
-      ]),
-    )
+      ])
+    })
     g.appendChild(b)
   }
+  const savedTiles = savedNodes
   const add = document.createElement('button')
   add.className = 'tile add'
   add.innerHTML = '<span class="ic">+</span><span class="lb" style="opacity:.7">Add</span>'
@@ -632,13 +642,24 @@ function savedRow(s: SavedTab): HTMLDivElement {
   )
   return b
 }
-/** Saves a tab and flips the left panel to the Saved list so the result is visible. */
+/** Quick save: goes to Notion when connected (title/link/tags, no summary),
+    otherwise to the local saved-tabs list. */
 function saveTabAndShow(t: { title: string; url: string; favicon?: string }): void {
-  void saveTab(t).then((added) => {
+  void (async () => {
+    const configured = (await getNotionCfg()) !== null
+    if (configured && extApi?.runtime) {
+      toast('Saving to Notion…')
+      const r = (await extApi.runtime.sendMessage({ type: 'notion.saveQuick', title: t.title, url: t.url })) as
+        | { ok: boolean; message: string }
+        | undefined
+      toast(r?.message ?? 'No response — try again')
+      return
+    }
+    const added = await saveTab(t)
     void refreshSavedTabs()
     if (!location.hash.startsWith('#/explorer')) renderHomePanels()
-    toast(added ? `Saved “${t.title}” — see Saved tabs on the left` : 'Already in your saved tabs')
-  })
+    toast(added ? `Saved “${t.title}”` : 'Already in your saved tabs')
+  })()
 }
 
 function openTabRow(t: LinkNode, indent: boolean): HTMLDivElement {
@@ -664,13 +685,35 @@ function openTabRow(t: LinkNode, indent: boolean): HTMLDivElement {
 }
 
 function renderHomePanels(): void {
-  /* left: saved tabs */
-  const leftBox = el<HTMLDivElement>('#homeLeft')
-  leftBox.innerHTML = ''
-  if (!savedTabs.length)
-    leftBox.innerHTML =
-      '<span class="hempty">Nothing saved yet. Hover an open tab and hit 🔖, use “＋ Save all”, or click the toolbar button on any page.</span>'
-  for (const s of savedTabs) leftBox.appendChild(savedRow(s))
+  /* left: saved pages — Notion is the home for saves; local list is the
+     fallback shown only until Notion is connected */
+  const notionBox = el<HTMLDivElement>('#homeNotion')
+  notionBox.innerHTML = ''
+  const notionLinks = SOURCES.notion.root.filter((n): n is LinkNode => n.type === 'link')
+  if (SOURCES.notion.isLive || notionLinks.length) {
+    if (!notionLinks.length)
+      notionBox.innerHTML =
+        '<span class="hempty">No saves yet — hover any open tab and hit 🔖, or use the toolbar button on the page you\'re reading.</span>'
+    for (const n of notionLinks.slice(0, 30)) {
+      const b = hrow(n)
+      b.addEventListener('click', (e) => {
+        if (clickedControl(e)) return
+        openNode(n, 'newtab')
+      })
+      b.addEventListener('contextmenu', (e) => ctxMenu(e, n, 'notion'))
+      b.appendChild(
+        actBtn('↗', 'Open in Notion', () => {
+          void openUrl(n.notionUrl ?? '', false)
+        }),
+      )
+      notionBox.appendChild(b)
+    }
+  } else {
+    if (!savedTabs.length)
+      notionBox.innerHTML =
+        '<span class="hempty">Connect Notion (Wallpaper → 📔) to save pages with summaries — or just hit 🔖 on any tab to save locally.</span>'
+    for (const s of savedTabs) notionBox.appendChild(savedRow(s))
+  }
   /* right column, lower box: open tabs */
   const tabsBox = el<HTMLDivElement>('#homeTabs')
   tabsBox.innerHTML = ''
@@ -739,16 +782,29 @@ function renderHomePanels(): void {
   requestIconsFor(visibleBmLinks)
 }
 el<HTMLButtonElement>('#saveAllBtn').addEventListener('click', () => {
-  const tabs = openTabsAsLinks()
-  if (!tabs.length) {
-    toast('No open tabs to save')
-    return
-  }
-  void saveTabs(tabs.map((t) => ({ title: t.title, url: t.url, favicon: t.favicon }))).then((added) => {
+  void (async () => {
+    const tabs = openTabsAsLinks()
+    if (!tabs.length) {
+      toast('No open tabs to save')
+      return
+    }
+    if ((await getNotionCfg()) !== null && extApi?.runtime) {
+      toast(`Saving ${tabs.length} tab${tabs.length > 1 ? 's' : ''} to Notion…`)
+      let added = 0
+      for (const t of tabs) {
+        const r = (await extApi.runtime.sendMessage({ type: 'notion.saveQuick', title: t.title, url: t.url })) as
+          | { ok: boolean; message: string }
+          | undefined
+        if (r?.ok && !r.message.startsWith('Already')) added++
+      }
+      toast(added ? `Saved ${added} tab${added > 1 ? 's' : ''} to Notion 📔` : 'All open tabs were already saved')
+      return
+    }
+    const added = await saveTabs(tabs.map((t) => ({ title: t.title, url: t.url, favicon: t.favicon })))
     void refreshSavedTabs()
     renderHomePanels()
     toast(added ? `Saved ${added} tab${added > 1 ? 's' : ''}` : 'All open tabs were already saved')
-  })
+  })()
 })
 
 /* clock */

@@ -66,6 +66,24 @@ export function summarize(text: string, maxSentences = 4): string {
     .join(' ')
 }
 
+const STOPWORDS = new Set(
+  'about above after again their there these those which while would could should percent among between through during before other others because against including something anything everything'.split(' '),
+)
+/** Cheap topic tags for the no-AI fallback: domain + most frequent long words. */
+export function keywordTags(text: string, domain: string): string[] {
+  const freq = new Map<string, number>()
+  for (const w of text.toLowerCase().match(/[a-z][a-z'-]{4,}/g) ?? []) {
+    if (STOPWORDS.has(w)) continue
+    freq.set(w, (freq.get(w) ?? 0) + 1)
+  }
+  const top = [...freq.entries()]
+    .filter(([, c]) => c >= 3)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([w]) => w.charAt(0).toUpperCase() + w.slice(1))
+  return [domain, ...top]
+}
+
 function absolutize(src: string, base: string): string | null {
   try {
     const u = new URL(src, base)
@@ -134,5 +152,6 @@ export async function captureTab(tabId: number): Promise<SaveInput | string> {
     byline: article?.byline ?? undefined,
     images: pickImages(grab, article?.content ?? null),
     domain: new URL(grab.url).host.replace(/^www\./, ''),
+    tags: keywordTags(text, new URL(grab.url).host.replace(/^www\./, '')),
   }
 }

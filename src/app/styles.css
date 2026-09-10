@@ -80,7 +80,9 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
   background:var(--glass); border:1px solid var(--glass-line); border-radius:16px; padding:14px 8px 10px;
   backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px)}
 .hpanel.left{left:22px}
-.hcol{position:absolute; top:70px; bottom:80px; right:22px; width:250px; display:flex; flex-direction:column; gap:14px}
+.hcol{position:absolute; top:70px; bottom:80px; width:250px; display:flex; flex-direction:column; gap:14px}
+.hcol.left{left:22px}
+.hcol.right{right:22px}
 .hcol .hpanel{position:static; width:auto; flex:1; min-height:0; top:auto; bottom:auto}
 .hpanel h3{font-size:10.5px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:var(--wpink2); padding:0 10px 9px;
   display:flex; align-items:center; justify-content:space-between; gap:8px; row-gap:7px; flex-wrap:wrap}

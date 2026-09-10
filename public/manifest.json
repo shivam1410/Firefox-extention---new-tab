@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Library Tab",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Your new tab as a personal library — manage tabs, bookmarks and history in a files-and-folders view.",
   "browser_specific_settings": {
     "gecko": {

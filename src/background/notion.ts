@@ -114,6 +114,7 @@ export interface SaveInput {
   byline?: string
   images: string[]
   domain: string
+  tags?: string[]
 }
 
 /** Renders a summary that may contain "- " bullet lines into Notion blocks. */
@@ -222,6 +223,10 @@ export async function saveToNotion(input: SaveInput): Promise<{ ok: boolean; mes
     if (schema.urlProp) properties[schema.urlProp] = { url: input.url }
     if (schema.dateProp) properties[schema.dateProp] = { date: { start: new Date().toISOString() } }
     if (schema.domainProp) properties[schema.domainProp] = { select: { name: trim(input.domain, 100) } }
+    if (schema.tagsProp && input.tags?.length)
+      properties[schema.tagsProp] = {
+        multi_select: input.tags.slice(0, 5).map((t) => ({ name: trim(t.replace(/,/g, ' '), 90) })),
+      }
 
     const children: Array<Record<string, unknown>> = []
     if (input.summary) children.push(...summaryBlocks(input.summary))

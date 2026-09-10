@@ -14,14 +14,32 @@ async function flashBadge(text: string): Promise<void> {
   }, 1600)
 }
 
+/** Quick save: a lightweight Notion page — title, link, domain tag, date.
+    No capture, no AI; works on any page and returns in ~a second. */
+async function quickSaveToNotion(title: string, url: string): Promise<{ ok: boolean; message: string; pageUrl?: string }> {
+  let domain = ''
+  try {
+    domain = new URL(url).host.replace(/^www\./, '')
+  } catch {
+    return { ok: false, message: 'That URL can\'t be saved.' }
+  }
+  const result = await saveToNotion({ title: title || url, url, summary: '', images: [], domain, tags: [domain] })
+  if (result.ok) void browser.storage.local.set({ notionLastSave: Date.now() })
+  void flashBadge(result.ok ? '✓' : '!')
+  return result
+}
+
 /** Capture the live page, summarize, save to Notion. Keeps running even if
     the popup that requested it closes; the badge reports the outcome. */
 async function saveTabToNotion(tabId: number): Promise<{ ok: boolean; message: string; pageUrl?: string }> {
   const captured = await captureTab(tabId)
   if (typeof captured === 'string') return { ok: false, message: captured }
-  // upgrade the local extractive summary to an AI one when OpenRouter is configured
+  // upgrade the local extractive summary + tags to AI ones when a key is configured
   const ai = await llmSummarize(captured.title, captured.url, captured.fullText ?? captured.summary)
-  if (ai) captured.summary = ai
+  if (ai) {
+    captured.summary = ai.summary
+    if (ai.tags.length) captured.tags = [captured.domain, ...ai.tags.filter((t) => t.toLowerCase() !== captured.domain)]
+  }
   const result = await saveToNotion(captured)
   if (result.ok) void browser.storage.local.set({ notionLastSave: Date.now() }) // nudges open pages to refresh their Notion list
   void flashBadge(result.ok ? '✓' : '!')
@@ -30,7 +48,17 @@ async function saveTabToNotion(tabId: number): Promise<{ ok: boolean; message: s
 
 // Message router for the app pages and the toolbar popup.
 browser.runtime.onMessage.addListener((msg) => {
-  const m = msg as { type?: string; url?: string; token?: string; tabId?: number; key?: string; model?: string; pageId?: string }
+  const m = msg as {
+    type?: string
+    url?: string
+    title?: string
+    token?: string
+    tabId?: number
+    key?: string
+    model?: string
+    pageId?: string
+  }
+  if (m?.type === 'notion.saveQuick' && typeof m.url === 'string') return quickSaveToNotion(m.title ?? '', m.url)
   if (m?.type === 'meta.ensure' && typeof m.url === 'string') return ensureMeta(m.url)
   if (m?.type === 'notion.listDbs' && typeof m.token === 'string') return listDatabases(m.token)
   if (m?.type === 'notion.saveTab' && typeof m.tabId === 'number') return saveTabToNotion(m.tabId)

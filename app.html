@@ -17,10 +17,12 @@
     <div class="results" id="homeR"></div>
   </div>
   <div class="grid-home" id="homeGrid"></div>
-  <aside class="hpanel left" aria-label="Saved tabs">
-    <h3><span>🔖&ensp;Saved tabs</span><span class="hbtns"><button class="hsave" id="saveAllBtn" title="Save every open tab into your saved list">＋ Save all</button><button class="hsave" id="exportBtn" title="Download a JSON backup of your saved tabs, grid and library">⬇</button><button class="hsave" id="importBtn" title="Restore from a Library Tab backup file">⬆</button><input type="file" id="importFile" accept=".json,application/json" hidden></span></h3>
-    <div class="hlist" id="homeLeft"></div>
-  </aside>
+  <div class="hcol left">
+    <aside class="hpanel" aria-label="Saved pages">
+      <h3><span>📔&ensp;Saved</span><span class="hbtns"><button class="hsave" id="saveAllBtn" title="Save every open tab">＋ Save all</button><button class="hsave" id="exportBtn" title="Download a JSON backup of your grid, library and local saves">⬇</button><button class="hsave" id="importBtn" title="Restore from a Library Tab backup file">⬆</button><input type="file" id="importFile" accept=".json,application/json" hidden></span></h3>
+      <div class="hlist" id="homeNotion"></div>
+    </aside>
+  </div>
   <div class="hcol right">
     <aside class="hpanel" aria-label="Bookmarks">
       <h3>★&ensp;Bookmarks</h3>

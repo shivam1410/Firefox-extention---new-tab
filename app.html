@@ -19,7 +19,7 @@
   <div class="grid-home" id="homeGrid"></div>
   <div class="hcol left">
     <aside class="hpanel" aria-label="Saved pages">
-      <h3><span>📔&ensp;Saved</span><span class="hbtns"><button class="hsave" id="saveAllBtn" title="Save every open tab">＋ Save all</button><button class="hsave" id="exportBtn" title="Download a JSON backup of your grid, library and local saves">⬇</button><button class="hsave" id="importBtn" title="Restore from a Library Tab backup file">⬆</button><input type="file" id="importFile" accept=".json,application/json" hidden></span></h3>
+      <h3>📔&ensp;Saved</h3>
       <div class="hlist" id="homeNotion"></div>
     </aside>
   </div>
@@ -29,7 +29,7 @@
       <div class="hlist" id="homeBm"></div>
     </aside>
     <aside class="hpanel" aria-label="Open tabs">
-      <h3>⊞&ensp;Open tabs</h3>
+      <h3><span>⊞&ensp;Open tabs</span><button class="hsave" id="saveAllBtn" title="Save every open tab">＋ Save all</button></h3>
       <div class="hlist" id="homeTabs"></div>
     </aside>
   </div>
@@ -44,6 +44,9 @@
       <div><button data-wp="dawn" style="background:linear-gradient(140deg,#ffd9c2,#f7b7c8 55%,#c9d9f2)" aria-label="Dawn"></button><span>Dawn</span></div>
       <div><button data-wp="graphite" style="background:linear-gradient(140deg,#3a3f4c,#14161c)" aria-label="Graphite"></button><span>Graphite</span></div>
     </div>
+    <h3 class="wpop-note-h">Backup</h3>
+    <div class="wpop-row"><button class="richbtn" id="exportBtn" title="Download a JSON backup of your grid, library and local saves">⬇ Export</button><button class="richbtn" id="importBtn" title="Restore from a Library Tab backup file">⬆ Import</button></div>
+    <input type="file" id="importFile" accept=".json,application/json" hidden>
     <h3 class="wpop-note-h">Cloud sync</h3>
     <button class="richbtn" id="cloudBtn">☁ Set up cloud sync</button>
     <h3 class="wpop-note-h">Notion</h3>

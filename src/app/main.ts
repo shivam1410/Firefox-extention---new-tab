@@ -458,7 +458,7 @@ function renderHome(): void {
   /* saved pages appear as tiles too (from Notion when connected; local fallback otherwise) */
   const pinnedUrls = new Set(GRID.filter((x): x is LinkNode => x.type === 'link').map((x) => x.url))
   const localByUrl = new Map(savedTabs.map((s) => [s.url, s]))
-  const useNotion = SOURCES.notion.isLive || SOURCES.notion.root.length > 0
+  const useNotion = notionConfigured || SOURCES.notion.isLive || SOURCES.notion.root.length > 0
   const savedNodes: LinkNode[] = useNotion
     ? SOURCES.notion.root.filter((x): x is LinkNode => x.type === 'link' && !pinnedUrls.has(x.url)).slice(0, 24)
     : savedTabs.filter((s) => !pinnedUrls.has(s.url)).map((s) => L(s.title, s.url, { favicon: s.favicon }))
@@ -594,8 +594,10 @@ function clickedControl(e: MouseEvent): boolean {
 
 /* ---------- HOME side panels: saved tabs (left) + bookmarks (right) ---------- */
 let savedTabs: SavedTab[] = []
+let notionConfigured = false
 async function refreshSavedTabs(): Promise<void> {
   savedTabs = await loadSavedTabs()
+  notionConfigured = (await getNotionCfg()) !== null
   if (isEditing()) return
   renderHome()
   if (!location.hash.startsWith('#/explorer')) renderHomePanels()
@@ -690,10 +692,11 @@ function renderHomePanels(): void {
   const notionBox = el<HTMLDivElement>('#homeNotion')
   notionBox.innerHTML = ''
   const notionLinks = SOURCES.notion.root.filter((n): n is LinkNode => n.type === 'link')
-  if (SOURCES.notion.isLive || notionLinks.length) {
+  if (notionConfigured || SOURCES.notion.isLive || notionLinks.length) {
     if (!notionLinks.length)
-      notionBox.innerHTML =
-        '<span class="hempty">No saves yet — hover any open tab and hit 🔖, or use the toolbar button on the page you\'re reading.</span>'
+      notionBox.innerHTML = SOURCES.notion.isLive
+        ? '<span class="hempty">No saves yet — hover any open tab and hit 🔖, or use the toolbar button on the page you\'re reading.</span>'
+        : '<span class="hempty">Loading your Notion saves…</span>'
     for (const n of notionLinks.slice(0, 30)) {
       const b = hrow(n)
       b.addEventListener('click', (e) => {

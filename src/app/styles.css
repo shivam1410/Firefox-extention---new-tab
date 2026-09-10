@@ -138,6 +138,7 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .richbtn{font-size:12px; font-weight:600; color:var(--accent); border:1px solid var(--accent); border-radius:8px; padding:5px 12px}
 .richbtn:hover{background:var(--accent-soft)}
 .richbtn:disabled{color:#1E9E5A; border-color:color-mix(in srgb, #1E9E5A 45%, transparent); cursor:default}
+.wpop-row{display:flex; gap:8px}
 .wpop .sw{display:flex; gap:10px}
 .wpop .sw button{width:74px; height:48px; border-radius:9px; border:2px solid transparent; overflow:hidden}
 .wpop .sw button.on{border-color:var(--accent)}

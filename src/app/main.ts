@@ -203,6 +203,21 @@ async function preloadNotionCache(): Promise<void> {
     reindexAll()
   }
 }
+async function removeFromNotionCache(pageId: string): Promise<void> {
+  const w = window as Window & { browser?: typeof browser }
+  if (!w.browser?.storage?.local) return
+  const box = await w.browser.storage.local.get('notionCache')
+  const items = box['notionCache'] as RecentSave[] | undefined
+  if (Array.isArray(items)) await w.browser.storage.local.set({ notionCache: items.filter((i) => i.pageId !== pageId) })
+}
+/** Archive a Notion save and repaint every surface that shows it. */
+function archiveNotionNode(n: LinkNode): void {
+  deleteNode(n)
+  renderHome()
+  if (location.hash.startsWith('#/explorer')) renderExplorer()
+  else renderHomePanels()
+  toast(`Archived “${n.title}” in Notion`)
+}
 async function loadNotionRecent(): Promise<TreeNode[]> {
   const w = window as Window & { browser?: typeof browser }
   if (!w.browser?.runtime) return []
@@ -487,6 +502,23 @@ function renderHome(): void {
     b.tabIndex = 0
     b.setAttribute('role', 'button')
     b.innerHTML = tileIcon(n) + `<span class="lb">${esc(n.title)}</span><span class="savb" title="Saved${n.notionId ? ' in Notion' : ''}">📔</span>`
+    const tdel = document.createElement('button')
+    tdel.className = 'tdel hact'
+    tdel.title = n.notionId ? 'Archive in Notion' : 'Remove from saved tabs'
+    tdel.textContent = '✕'
+    tdel.addEventListener('click', (e) => {
+      e.stopPropagation()
+      if (n.notionId) {
+        archiveNotionNode(n)
+        return
+      }
+      const s = localByUrl.get(n.url)
+      if (s) {
+        void removeSavedTab(s.id).then(refreshSavedTabs)
+        toast(`Removed “${s.title}”`)
+      }
+    })
+    b.appendChild(tdel)
     b.addEventListener('click', (e) => {
       if (clickedControl(e)) return
       openNode(n, 'here')
@@ -730,6 +762,7 @@ function renderHomePanels(): void {
           void openUrl(n.notionUrl ?? '', false)
         }),
       )
+      b.appendChild(actBtn('✕', 'Archive in Notion', () => archiveNotionNode(n)))
       notionBox.appendChild(b)
     }
   } else {
@@ -1706,6 +1739,7 @@ function deleteNode(n: TreeNode): void {
     void deleteHistoryUrl(n.url).catch(() => toast('Couldn\'t remove that URL'))
   } else if (owner === 'notion' && n.notionId) {
     void extApi?.runtime.sendMessage({ type: 'notion.archive', pageId: n.notionId })
+    void removeFromNotionCache(n.notionId)
   }
   detach(n) // optimistic; live events re-sync the authoritative tree
   if (owner === 'library' || owner === 'grid') persistLibrary()
@@ -1842,7 +1876,9 @@ function ctxMenu(e: MouseEvent, n: TreeNode, src: SourceKey | 'grid'): void {
         renderHome()
       } else {
         deleteNode(n)
-        renderExplorer()
+        renderHome()
+        if (location.hash.startsWith('#/explorer')) renderExplorer()
+        else renderHomePanels()
       }
       toast(`${s.delLabel}: “${n.title}”${src === 'history' ? ' — removes every visit of this URL' : ''}`)
     },

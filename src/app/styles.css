@@ -67,6 +67,10 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
   display:grid; place-items:center; font-size:11px; box-shadow:0 2px 8px rgba(255,107,44,.5); border:2px solid rgba(255,255,255,.85)}
 .tile .ic.img{background:var(--glass); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px)}
 .tile .ic.img img{width:62%; height:62%; object-fit:contain; border-radius:8px}
+.tile .tdel{position:absolute; top:-6px; left:2px; width:20px; height:20px; border-radius:50%;
+  background:var(--danger); color:#fff; font-size:10px; display:none; place-items:center;
+  border:2px solid rgba(255,255,255,.85); cursor:pointer; padding:0}
+.tile:hover .tdel, .tile:focus-within .tdel{display:grid}
 .tile .savb{position:absolute; top:-6px; right:2px; width:20px; height:20px; border-radius:50%;
   background:var(--glass); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
   border:1px solid var(--glass-line); display:grid; place-items:center; font-size:10px}

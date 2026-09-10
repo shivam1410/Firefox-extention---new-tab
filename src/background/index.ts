@@ -23,7 +23,7 @@ async function quickSaveToNotion(title: string, url: string): Promise<{ ok: bool
   } catch {
     return { ok: false, message: 'That URL can\'t be saved.' }
   }
-  const result = await saveToNotion({ title: title || url, url, summary: '', images: [], domain, tags: [domain] })
+  const result = await saveToNotion({ title: title || url, url, summary: '', images: [], domain, tags: [domain], saveType: 'Quick' })
   if (result.ok) void browser.storage.local.set({ notionLastSave: Date.now() })
   void flashBadge(result.ok ? '✓' : '!')
   return result
@@ -34,6 +34,7 @@ async function quickSaveToNotion(title: string, url: string): Promise<{ ok: bool
 async function saveTabToNotion(tabId: number): Promise<{ ok: boolean; message: string; pageUrl?: string }> {
   const captured = await captureTab(tabId)
   if (typeof captured === 'string') return { ok: false, message: captured }
+  captured.saveType = 'Summary'
   // upgrade the local extractive summary + tags to AI ones when a key is configured
   const ai = await llmSummarize(captured.title, captured.url, captured.fullText ?? captured.summary)
   if (ai) {

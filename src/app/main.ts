@@ -180,6 +180,28 @@ interface RecentSave {
   url?: string
   notionUrl: string
   createdAt: string
+  type?: string
+}
+function notionItemsToNodes(items: RecentSave[]): TreeNode[] {
+  return items.map((it) =>
+    L(it.title, it.url ?? it.notionUrl, {
+      notionId: it.pageId,
+      notionUrl: it.notionUrl,
+      saveType: it.type,
+      when: it.createdAt ? new Date(it.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '',
+    }),
+  )
+}
+/** Instant paint from the last-known Notion list while the live query runs. */
+async function preloadNotionCache(): Promise<void> {
+  const w = window as Window & { browser?: typeof browser }
+  if (!w.browser?.storage?.local) return
+  const box = await w.browser.storage.local.get('notionCache')
+  const items = box['notionCache'] as RecentSave[] | undefined
+  if (Array.isArray(items) && items.length && !SOURCES.notion.root.length) {
+    SOURCES.notion.root = notionItemsToNodes(items)
+    reindexAll()
+  }
 }
 async function loadNotionRecent(): Promise<TreeNode[]> {
   const w = window as Window & { browser?: typeof browser }
@@ -187,15 +209,10 @@ async function loadNotionRecent(): Promise<TreeNode[]> {
   const r = (await w.browser.runtime.sendMessage({ type: 'notion.recent' })) as
     | { ok: boolean; items: RecentSave[] }
     | undefined
-  if (!r?.ok) return []
+  if (!r?.ok) return SOURCES.notion.root // keep cached state on failure
   SOURCES.notion.isLive = true
-  return r.items.map((it) =>
-    L(it.title, it.url ?? it.notionUrl, {
-      notionId: it.pageId,
-      notionUrl: it.notionUrl,
-      when: it.createdAt ? new Date(it.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '',
-    }),
-  )
+  void w.browser.storage.local.set({ notionCache: r.items.slice(0, 50) })
+  return notionItemsToNodes(r.items)
 }
 async function refreshSource(k: SourceKey): Promise<void> {
   const s = SOURCES[k]
@@ -460,7 +477,9 @@ function renderHome(): void {
   const localByUrl = new Map(savedTabs.map((s) => [s.url, s]))
   const useNotion = notionConfigured || SOURCES.notion.isLive || SOURCES.notion.root.length > 0
   const savedNodes: LinkNode[] = useNotion
-    ? SOURCES.notion.root.filter((x): x is LinkNode => x.type === 'link' && !pinnedUrls.has(x.url)).slice(0, 24)
+    ? SOURCES.notion.root
+        .filter((x): x is LinkNode => x.type === 'link' && x.saveType === 'Quick' && !pinnedUrls.has(x.url))
+        .slice(0, 24)
     : savedTabs.filter((s) => !pinnedUrls.has(s.url)).map((s) => L(s.title, s.url, { favicon: s.favicon }))
   for (const n of savedNodes) {
     const b = document.createElement('div')
@@ -691,11 +710,13 @@ function renderHomePanels(): void {
      fallback shown only until Notion is connected */
   const notionBox = el<HTMLDivElement>('#homeNotion')
   notionBox.innerHTML = ''
-  const notionLinks = SOURCES.notion.root.filter((n): n is LinkNode => n.type === 'link')
+  const notionLinks = SOURCES.notion.root.filter(
+    (n): n is LinkNode => n.type === 'link' && n.saveType !== 'Quick',
+  )
   if (notionConfigured || SOURCES.notion.isLive || notionLinks.length) {
     if (!notionLinks.length)
       notionBox.innerHTML = SOURCES.notion.isLive
-        ? '<span class="hempty">No saves yet — hover any open tab and hit 🔖, or use the toolbar button on the page you\'re reading.</span>'
+        ? '<span class="hempty">No summarized saves yet — open an article and use the toolbar button: 📔 Summarize &amp; save.</span>'
         : '<span class="hempty">Loading your Notion saves…</span>'
     for (const n of notionLinks.slice(0, 30)) {
       const b = hrow(n)
@@ -1945,9 +1966,11 @@ watchSavedTabs(() => {
   void maybeRefreshNotion()
   scheduleCloudPush(() => void refreshSavedTabs())
 })
-void refreshSavedTabs().then(() => {
-  // pull-on-open: adopt cloud changes made on other devices
-  void getCloudAuth().then((auth) => {
+void preloadNotionCache()
+  .then(() => refreshSavedTabs())
+  .then(() => {
+    // pull-on-open: adopt cloud changes made on other devices
+    void getCloudAuth().then((auth) => {
     if (!auth) return
     void syncNow().then((r) => {
       if (r.changedLocal) {

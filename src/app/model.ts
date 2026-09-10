@@ -15,6 +15,7 @@ export interface BaseNode {
   bmId?: string
   notionId?: string
   notionUrl?: string
+  saveType?: string
   favicon?: string
 }
 export interface LinkNode extends BaseNode {

@@ -83,6 +83,7 @@ interface SchemaMap {
   dateProp?: string
   tagsProp?: string
   domainProp?: string
+  typeProp?: string
 }
 
 async function mapSchema(token: string, databaseId: string): Promise<SchemaMap | string> {
@@ -94,15 +95,17 @@ async function mapSchema(token: string, databaseId: string): Promise<SchemaMap |
   let dateProp: string | undefined
   let tagsProp: string | undefined
   let domainProp: string | undefined
+  let typeProp: string | undefined
   for (const [name, def] of Object.entries(props)) {
     if (def.type === 'title') titleProp = name
     else if (def.type === 'url' && !urlProp) urlProp = name
     else if (def.type === 'date' && !dateProp) dateProp = name
     else if (def.type === 'multi_select' && !tagsProp) tagsProp = name
+    else if (def.type === 'select' && !typeProp && /^(type|kind)$/i.test(name)) typeProp = name
     else if (def.type === 'select' && !domainProp && /domain|site|source/i.test(name)) domainProp = name
   }
   if (!titleProp) return 'The database has no title property (every Notion database should).'
-  return { titleProp, urlProp, dateProp, tagsProp, domainProp }
+  return { titleProp, urlProp, dateProp, tagsProp, domainProp, typeProp }
 }
 
 export interface SaveInput {
@@ -115,6 +118,7 @@ export interface SaveInput {
   images: string[]
   domain: string
   tags?: string[]
+  saveType?: 'Quick' | 'Summary'
 }
 
 /** Renders a summary that may contain "- " bullet lines into Notion blocks. */
@@ -149,6 +153,7 @@ export interface RecentSave {
   url?: string
   notionUrl: string
   createdAt: string
+  type?: string
 }
 
 /** Most recent saves in the configured database (newest first). */
@@ -170,12 +175,16 @@ export async function listRecent(): Promise<{ ok: boolean; message: string; item
       const titleArr = props[schema.titleProp]?.['title'] as Array<{ plain_text?: string }> | undefined
       const title = titleArr?.map((t) => t.plain_text ?? '').join('') || 'Untitled'
       const url = schema.urlProp ? ((props[schema.urlProp]?.['url'] as string | null | undefined) ?? undefined) : undefined
+      const typeSel = schema.typeProp
+        ? (props[schema.typeProp]?.['select'] as { name?: string } | null | undefined)
+        : undefined
       items.push({
         pageId: String(p['id']),
         title,
         url,
         notionUrl: String(p['url'] ?? ''),
         createdAt: String(p['created_time'] ?? ''),
+        type: typeSel?.name,
       })
     }
     return { ok: true, message: `${items.length} saved`, items }
@@ -227,6 +236,7 @@ export async function saveToNotion(input: SaveInput): Promise<{ ok: boolean; mes
       properties[schema.tagsProp] = {
         multi_select: input.tags.slice(0, 5).map((t) => ({ name: trim(t.replace(/,/g, ' '), 90) })),
       }
+    if (schema.typeProp && input.saveType) properties[schema.typeProp] = { select: { name: input.saveType } }
 
     const children: Array<Record<string, unknown>> = []
     if (input.summary) children.push(...summaryBlocks(input.summary))

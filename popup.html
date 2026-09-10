@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Library Tab</title>
+<script type="module" src="./src/popup/main.ts"></script>
+</head>
+<body class="popup-body">
+
+<div class="p-page">
+  <img class="p-fav" id="pFav" alt="" hidden>
+  <span class="p-title" id="pTitle">…</span>
+</div>
+
+<button class="p-btn" id="pQuick">
+  <span class="p-ico">🔖</span>
+  <span><b>Quick save</b><small>Keep in your saved-tabs list</small></span>
+</button>
+
+<button class="p-btn" id="pNotion">
+  <span class="p-ico">📔</span>
+  <span><b>Save to Notion</b><small>Summarize this page + images</small></span>
+</button>
+
+<div class="p-status" id="pStatus"></div>
+
+<div class="p-foot">
+  <button class="p-link" id="pOpenLib">⊞ Open library</button>
+  <button class="p-link" id="pSettings">Notion settings</button>
+</div>
+
+</body>
+</html>

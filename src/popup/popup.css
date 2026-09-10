@@ -1,0 +1,33 @@
+:root{
+  --bg:#FBFCFE; --surface:#F2F4F8; --text:#1C1E26; --text2:#6C7284; --line:#E0E3EB;
+  --accent:#3D63E0; --ok:#1E9E5A; --err:#D64545;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#1E2128; --surface:#272B34; --text:#E9EBF1; --text2:#9AA1B3; --line:#2E323D; --accent:#7290FF }
+}
+*{box-sizing:border-box; margin:0}
+.popup-body{
+  width:320px; padding:14px; background:var(--bg); color:var(--text);
+  font:13.5px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  display:flex; flex-direction:column; gap:10px;
+}
+.p-page{display:flex; align-items:center; gap:8px; padding:2px 2px 6px; border-bottom:1px solid var(--line)}
+.p-fav{width:16px; height:16px; border-radius:4px; flex:none}
+.p-title{font-weight:600; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.p-btn{
+  display:flex; align-items:center; gap:11px; width:100%; text-align:left; padding:10px 12px;
+  border:1px solid var(--line); border-radius:11px; background:var(--surface); color:var(--text);
+  font:inherit; cursor:pointer;
+}
+.p-btn:hover:not(:disabled){border-color:var(--accent)}
+.p-btn:disabled{opacity:.45; cursor:default}
+.p-ico{font-size:19px; flex:none}
+.p-btn b{display:block; font-size:13.5px}
+.p-btn small{display:block; color:var(--text2); font-size:11.5px}
+.p-status{min-height:18px; font-size:12px; color:var(--text2); text-align:center}
+.p-status.ok{color:var(--ok)}
+.p-status.err{color:var(--err)}
+.p-status.busy{color:var(--accent)}
+.p-foot{display:flex; justify-content:space-between; border-top:1px solid var(--line); padding-top:8px}
+.p-link{background:none; border:none; color:var(--accent); font:inherit; font-size:12px; cursor:pointer; padding:2px 4px}
+.p-link:hover{text-decoration:underline}

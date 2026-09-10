@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>New Tab</title>
+<script type="module" src="./src/app/main.ts"></script>
+</head>
+<body>
+
+<!-- ================= HOME (new tab) ================= -->
+<section class="view" id="home" data-wp="aurora">
+  <div class="clock"><div class="t" id="clockT"></div><div class="d" id="clockD"></div></div>
+  <div class="homesearch">
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="6.5" cy="6.5" r="4.7"/><path d="M10.2 10.2 L13.6 13.6"/></svg>
+    <input id="homeQ" type="text" placeholder="Search your library…  ( / )" autocomplete="off">
+    <div class="results" id="homeR"></div>
+  </div>
+  <div class="grid-home" id="homeGrid"></div>
+  <aside class="hpanel left" aria-label="Saved tabs">
+    <h3><span>🔖&ensp;Saved tabs</span><span class="hbtns"><button class="hsave" id="saveAllBtn" title="Save every open tab into your saved list">＋ Save all</button><button class="hsave" id="exportBtn" title="Download a JSON backup of your saved tabs, grid and library">⬇</button><button class="hsave" id="importBtn" title="Restore from a Library Tab backup file">⬆</button><input type="file" id="importFile" accept=".json,application/json" hidden></span></h3>
+    <div class="hlist" id="homeLeft"></div>
+  </aside>
+  <div class="hcol right">
+    <aside class="hpanel" aria-label="Bookmarks">
+      <h3>★&ensp;Bookmarks</h3>
+      <div class="hlist" id="homeBm"></div>
+    </aside>
+    <aside class="hpanel" aria-label="Open tabs">
+      <h3>⊞&ensp;Open tabs</h3>
+      <div class="hlist" id="homeTabs"></div>
+    </aside>
+  </div>
+  <div class="homefoot">
+    <button class="glassbtn" id="openLib">⊞&ensp;Open library</button>
+    <button class="glassbtn" id="wpBtn">🖼&ensp;Wallpaper</button>
+  </div>
+  <div class="wpop" id="wpop">
+    <h3>Wallpaper</h3>
+    <div class="sw">
+      <div><button data-wp="aurora" style="background:linear-gradient(140deg,#123a4f,#3f2d6e 55%,#0f4d43)" aria-label="Aurora"></button><span>Aurora</span></div>
+      <div><button data-wp="dawn" style="background:linear-gradient(140deg,#ffd9c2,#f7b7c8 55%,#c9d9f2)" aria-label="Dawn"></button><span>Dawn</span></div>
+      <div><button data-wp="graphite" style="background:linear-gradient(140deg,#3a3f4c,#14161c)" aria-label="Graphite"></button><span>Graphite</span></div>
+    </div>
+    <h3 class="wpop-note-h">Cloud sync</h3>
+    <button class="richbtn" id="cloudBtn">☁ Set up cloud sync</button>
+    <h3 class="wpop-note-h">Notion</h3>
+    <button class="richbtn" id="notionBtn">📔 Connect Notion</button>
+    <h3 class="wpop-note-h">Rich icons &amp; titles</h3>
+    <button class="richbtn" id="richBtn">✨ Enable rich icons</button>
+    <div class="wpop-note">Fetches each site's real logo and name for your tiles. Firefox will ask once for permission to read pages.</div>
+  </div>
+  <div class="overlay" id="foldOverlay"><div class="fpanel"><h2 id="fpTitle"></h2><div class="grid-home" id="fpGrid"></div></div></div>
+</section>
+
+<!-- ================= EXPLORER ================= -->
+<section class="view" id="explorer">
+  <nav class="sidebar" id="sidebar"></nav>
+  <div class="main">
+    <div class="topbar">
+      <button class="homebtn" id="goHome" title="Back to new tab">⌂</button>
+      <div class="xsearch">
+        <svg width="13" height="13" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="6.5" cy="6.5" r="4.7"/><path d="M10.2 10.2 L13.6 13.6"/></svg>
+        <input id="xQ" type="text" placeholder="Filter this folder" autocomplete="off">
+      </div>
+      <div class="crumbs" id="crumbs"></div>
+      <span class="preview-pill" title="Sources are wired up in the next phases">preview data</span>
+      <div class="vt">
+        <button id="vtList" class="on" title="List view"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><rect x="1" y="2" width="12" height="1.7" rx=".8"/><rect x="1" y="6.2" width="12" height="1.7" rx=".8"/><rect x="1" y="10.4" width="12" height="1.7" rx=".8"/></svg></button>
+        <button id="vtGrid" title="Grid view"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><rect x="1" y="1" width="5.2" height="5.2" rx="1.2"/><rect x="7.8" y="1" width="5.2" height="5.2" rx="1.2"/><rect x="1" y="7.8" width="5.2" height="5.2" rx="1.2"/><rect x="7.8" y="7.8" width="5.2" height="5.2" rx="1.2"/></svg></button>
+      </div>
+    </div>
+    <div class="caphint" id="caphint"></div>
+    <div class="pane" id="pane"></div>
+  </div>
+</section>
+
+<div class="modal" id="dlg">
+  <form class="dlg" id="dlgForm">
+    <h2 id="dlgHeading">Add link</h2>
+    <label class="dlg-field" id="dlgTitleField">Title
+      <input id="dlgTitleIn" type="text" autocomplete="off" placeholder="Optional — uses the site name if empty">
+    </label>
+    <label class="dlg-field" id="dlgUrlField">URL
+      <input id="dlgUrlIn" type="text" autocomplete="off" placeholder="https://…" inputmode="url">
+    </label>
+    <div class="dlg-actions">
+      <button type="button" id="dlgCancel">Cancel</button>
+      <button type="submit" id="dlgOk" class="primary">Add</button>
+    </div>
+  </form>
+</div>
+<div class="modal" id="notionDlg">
+  <form class="dlg" id="notionForm">
+    <h2>📔 Notion <span class="dlg-sub">save &amp; summarize pages like Pocket</span></h2>
+    <label class="dlg-field">Internal integration token (PAT)
+      <input id="ntToken" type="password" autocomplete="off" placeholder="ntn_… / secret_…">
+    </label>
+    <label class="dlg-field" id="ntDbField" hidden>Save into database
+      <select id="ntDb"></select>
+    </label>
+    <label class="dlg-field">AI key <span class="dlg-opt">(optional — Anthropic sk-ant-… or OpenRouter sk-or-…)</span>
+      <input id="orKey" type="password" autocomplete="off" placeholder="leave empty for local summaries">
+    </label>
+    <div class="dlg-field">Model pricing
+      <div class="tierseg">
+        <button type="button" id="tierPaid" class="on">Paid</button>
+        <button type="button" id="tierFree">Free</button>
+      </div>
+    </div>
+    <label class="dlg-field">AI model
+      <select id="orModelSel">
+        <option value="">★ Auto — Claude Haiku 4.5 (recommended paid)</option>
+      </select>
+    </label>
+    <label class="dlg-field" id="orCustomField" hidden>Custom model id
+      <input id="orModel" type="text" autocomplete="off" placeholder="e.g. anthropic/claude-sonnet-4.5">
+    </label>
+    <div class="dlg-status" id="ntStatus">One-time setup: create an integration at notion.so/my-integrations, copy its token, then in Notion open the database that should receive saves → ⋯ → Connections → add your integration.</div>
+    <div class="dlg-actions">
+      <button type="button" id="ntClose">Close</button>
+      <button type="button" id="ntDisconnect">Disconnect</button>
+      <button type="submit" class="primary" id="ntConnect">Connect</button>
+    </div>
+  </form>
+</div>
+<div class="modal" id="cloudDlg">
+  <form class="dlg" id="cloudForm">
+    <h2>☁ Cloud sync <span class="dlg-sub">your own Firebase project</span></h2>
+    <div id="cloudSetupFields">
+      <label class="dlg-field">Firebase Web API key
+        <input id="cfApiKey" type="text" autocomplete="off" placeholder="AIza…">
+      </label>
+      <label class="dlg-field">Project ID
+        <input id="cfProjectId" type="text" autocomplete="off" placeholder="my-project-id">
+      </label>
+      <label class="dlg-field">Google Web client ID <span class="dlg-opt">(for Google sign-in)</span>
+        <input id="cfGoogleId" type="text" autocomplete="off" placeholder="…apps.googleusercontent.com">
+      </label>
+      <div class="dlg-hint" id="cloudRedirect" hidden></div>
+    </div>
+    <div id="cloudCredFields">
+      <button type="button" class="gbtn" id="cloudGoogleBtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.5 12.3c0-.9-.1-1.5-.3-2.2H12v4.1h6.5c-.1 1.1-.8 2.7-2.4 3.8l3.7 2.9c2.3-2.1 3.7-5.1 3.7-8.6z"/><path fill="#34A853" d="M12 24c3.2 0 5.9-1.1 7.9-2.9l-3.7-2.9c-1 .7-2.4 1.2-4.2 1.2-3.1 0-5.8-2.1-6.7-5l-3.9 3C3.4 21.3 7.4 24 12 24z"/><path fill="#FBBC05" d="M5.3 14.4c-.2-.7-.4-1.5-.4-2.4s.1-1.7.4-2.4l-3.9-3C.5 8.2 0 10 0 12s.5 3.8 1.4 5.4l3.9-3z"/><path fill="#EA4335" d="M12 4.6c1.8 0 3 .8 3.7 1.4l3.3-3.2C16.9 1 14.2 0 12 0 7.4 0 3.4 2.7 1.4 6.6l3.9 3c.9-2.9 3.6-5 6.7-5z"/></svg>
+        Sign in with Google
+      </button>
+      <div class="dlg-divider">or with email &amp; password</div>
+      <label class="dlg-field">Email
+        <input id="cfEmail" type="email" autocomplete="off">
+      </label>
+      <label class="dlg-field">Password
+        <input id="cfPassword" type="password" autocomplete="off" placeholder="6+ characters">
+      </label>
+    </div>
+    <div class="dlg-status" id="cloudStatus"></div>
+    <div class="dlg-actions">
+      <button type="button" id="cloudClose">Close</button>
+      <button type="button" id="cloudSignOutBtn">Sign out</button>
+      <button type="button" id="cloudSyncNowBtn">Sync now</button>
+      <button type="button" id="cloudCreateBtn">Create account</button>
+      <button type="submit" class="primary" id="cloudSignInBtn">Sign in &amp; sync</button>
+    </div>
+  </form>
+</div>
+<div class="ctx" id="ctx"></div>
+<div class="toast" id="toast"></div>
+
+</body>
+</html>

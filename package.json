@@ -1,0 +1,24 @@
+{
+  "name": "library-tab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Firefox new-tab personal library: manage tabs, bookmarks and history in a files-and-folders view.",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "start": "web-ext run --source-dir dist",
+    "lint:ext": "web-ext lint --source-dir dist",
+    "sign": "npm run build && web-ext sign --source-dir dist --channel unlisted",
+    "package": "npm run typecheck && npm run build && web-ext build --source-dir dist --overwrite-dest && rm -f web-ext-artifacts/source.zip && zip -r web-ext-artifacts/source.zip package.json package-lock.json tsconfig.json vite.config.ts app.html README.md public src scripts -x '*.DS_Store'"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0",
+    "web-ext": "^8.3.0"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0"
+  }
+}

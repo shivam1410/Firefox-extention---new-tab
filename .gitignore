@@ -1,0 +1,8 @@
+node_modules/
+dist/
+web-ext-artifacts/
+.DS_Store
+.claude/
+.aw/
+.aw_docs/
+.agentic-workspace/

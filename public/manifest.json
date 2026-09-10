@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Library Tab",
+  "version": "0.3.0",
+  "description": "Your new tab as a personal library — manage tabs, bookmarks and history in a files-and-folders view.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "library-tab@shivam1410.dev",
+      "strict_min_version": "142.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
+  "background": {
+    "scripts": ["background.js"],
+    "type": "module"
+  },
+  "chrome_url_overrides": {
+    "newtab": "app.html"
+  },
+  "action": {
+    "default_title": "Library Tab",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "32": "icons/32.png",
+      "48": "icons/48.png"
+    }
+  },
+  "icons": {
+    "32": "icons/32.png",
+    "48": "icons/48.png",
+    "96": "icons/96.png",
+    "128": "icons/128.png"
+  },
+  "permissions": ["storage", "unlimitedStorage", "tabs", "bookmarks", "history", "identity", "scripting"],
+  "host_permissions": ["<all_urls>"]
+}

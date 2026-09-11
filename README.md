@@ -1,12 +1,16 @@
 # Library Tab
 
-Firefox (macOS) extension: your new tab as a personal library — manage tabs, bookmarks and
-history in a files-and-folders view, with wallpapers, auto-captured link icons, and
-"hot apps" that open instantly from pre-warmed tabs.
+Firefox extension: your new tab as a personal library — a wallpapered start page with a
+files-and-folders manager for tabs, bookmarks and history, one-click **save to Notion**
+(quick links or full AI summaries with images), rich site icons, hot apps, and backups.
 
-**Status: P0** — installable skeleton with the full UI and *preview data*.
-Real sources (IndexedDB library, live tabs/bookmarks/history, icon pipeline, hot apps)
-land phase by phase; see the plan in the project docs.
+- **[docs/SETUP.md](docs/SETUP.md)** — connecting Notion, AI keys (Anthropic/OpenRouter),
+  rich icons, Firebase sync, backups, and how the save model works
+- **[docs/RELEASING.md](docs/RELEASING.md)** — the full release runbook (package → AMO
+  signing → GitHub release), golden rules, and troubleshooting
+
+Distribution: signed via AMO (self-distributed channel); signed `.xpi` files are attached
+to [GitHub releases](https://github.com/shivam1410/Firefox-extention---new-tab/releases).
 
 ## Reproducing the build (for AMO reviewers)
 

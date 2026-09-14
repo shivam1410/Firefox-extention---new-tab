@@ -191,9 +191,11 @@ function paintMirror(next: SavesMirror): void {
     A failed query keeps the existing mirror untouched: `listAllSaves` reports
     an empty list on failure, and `reconcile` reads an empty listing as "the
     user archived everything", so reconciling a failure would wipe the page. */
+let syncing = false
+
 async function syncSaves(): Promise<TreeNode[]> {
   const w = window as Window & { browser?: typeof browser }
-  if (!w.browser?.runtime) return SOURCES.notion.root
+  if (!w.browser?.runtime || syncing) return SOURCES.notion.root
   const r = (await w.browser.runtime.sendMessage({ type: 'notion.list' })) as
     | { ok: boolean; message: string; items: SavedItem[]; hotIsLocal: boolean }
     | undefined
@@ -204,6 +206,34 @@ async function syncSaves(): Promise<TreeNode[]> {
   SOURCES.notion.isLive = true
   mirror = await updateMirror((m) => reconcile(m, r.items, { hotIsLocal: r.hotIsLocal, at: Date.now() }))
   return mirror.items.map(saveNode)
+}
+
+/** The user-facing refresh: quick, reports what changed, and cannot overlap
+    itself. Local is served from the mirror; this is the only path that talks
+    to Notion for reads. */
+async function refreshFromNotion(): Promise<void> {
+  if (syncing) return
+  syncing = true
+  const before = new Set(mirror.items.map((i) => i.pageId))
+  try {
+    const nodes = await syncSaves()
+    SOURCES.notion.root = nodes
+    reindexAll()
+  } finally {
+    syncing = false
+  }
+  rerender()
+  if (!SOURCES.notion.isLive) return // syncSaves already explained the failure
+  const added = mirror.items.filter((i) => !before.has(i.pageId)).length
+  const removed = [...before].filter((id) => !mirror.items.some((i) => i.pageId === id)).length
+  const total = mirror.items.length
+  if (!added && !removed) toast(`In sync — ${total} save${total === 1 ? '' : 's'}`)
+  else {
+    const parts: string[] = []
+    if (added) parts.push(`${added} new`)
+    if (removed) parts.push(`${removed} archived`)
+    toast(`Synced with Notion — ${parts.join(', ')}`)
+  }
 }
 
 /** Archives a save in Notion and drops it from the mirror. */
@@ -763,6 +793,11 @@ el<HTMLButtonElement>('#saveAllBtn').addEventListener('click', () => {
   })()
 })
 
+el<HTMLButtonElement>('#syncNotionBtn').addEventListener('click', () => {
+  toast('Refreshing from Notion…')
+  void refreshFromNotion()
+})
+
 /* clock */
 function tick(): void {
   const d = new Date()
@@ -1318,7 +1353,7 @@ function capHint(): void {
     refresh.textContent = '↻ Refresh'
     refresh.addEventListener('click', () => {
       toast('Refreshing from Notion…')
-      void refreshSource('notion').then(() => renderExplorer())
+      void refreshFromNotion()
     })
     bar.appendChild(refresh)
     hint.appendChild(bar)

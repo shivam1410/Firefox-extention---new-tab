@@ -68,10 +68,6 @@ declare const browser: {
     onStartup: WebExtEvent
     onInstalled: WebExtEvent
   }
-  identity: {
-    getRedirectURL(): string
-    launchWebAuthFlow(details: { url: string; interactive?: boolean }): Promise<string>
-  }
   permissions: {
     request(p: { origins: string[] }): Promise<boolean>
     contains(p: { origins: string[] }): Promise<boolean>

@@ -30,17 +30,6 @@ import {
 } from './saved-tabs'
 import { loadLibrary, saveLibrary, watchLibrary } from './library-store'
 import { fetchMeta, iconFor, queueIcons, requestRichIcons, richIconsEnabled } from './meta'
-import {
-  cloudSignIn,
-  cloudSignInGoogle,
-  cloudSignOut,
-  getCloudAuth,
-  getCloudConfig,
-  googleRedirectUrl,
-  scheduleCloudPush,
-  setCloudConfig,
-  syncNow,
-} from './cloud-sync'
 
 /* the user's persistent grid + library (loaded from storage at boot) */
 let GRID: TreeNode[] = []
@@ -1105,107 +1094,6 @@ if (new URLSearchParams(location.search).get('notion') === '1') {
   void renderNotionDlg()
 }
 
-/* ---------- cloud sync dialog ---------- */
-const cloudDlg = el<HTMLDivElement>('#cloudDlg')
-const cloudStatus = el<HTMLDivElement>('#cloudStatus')
-function setCloudStatus(msg: string, kind: 'ok' | 'err' | '' = ''): void {
-  cloudStatus.textContent = msg
-  cloudStatus.className = `dlg-status ${kind}`
-}
-async function renderCloudDlg(): Promise<void> {
-  const [cfg, auth] = await Promise.all([getCloudConfig(), getCloudAuth()])
-  if (cfg) {
-    el<HTMLInputElement>('#cfApiKey').value = cfg.apiKey
-    el<HTMLInputElement>('#cfProjectId').value = cfg.projectId
-    el<HTMLInputElement>('#cfGoogleId').value = cfg.googleClientId ?? ''
-  }
-  const redirect = googleRedirectUrl()
-  const hint = el<HTMLDivElement>('#cloudRedirect')
-  hint.hidden = !redirect
-  if (redirect) hint.textContent = `Authorised redirect URI for the Google OAuth client: ${redirect}`
-  const signedIn = Boolean(auth)
-  el<HTMLDivElement>('#cloudCredFields').style.display = signedIn ? 'none' : ''
-  el<HTMLButtonElement>('#cloudSignOutBtn').style.display = signedIn ? '' : 'none'
-  el<HTMLButtonElement>('#cloudSyncNowBtn').style.display = signedIn ? '' : 'none'
-  el<HTMLButtonElement>('#cloudSignInBtn').style.display = signedIn ? 'none' : ''
-  el<HTMLButtonElement>('#cloudCreateBtn').style.display = signedIn ? 'none' : ''
-  if (signedIn && auth) setCloudStatus(`Signed in as ${auth.email} — saved tabs sync automatically.`, 'ok')
-  else if (!cfg)
-    setCloudStatus(
-      'One-time setup: in console.firebase.google.com create a project, enable Authentication → Email/Password, create a Firestore database, then paste the Web API key and project ID here.',
-    )
-  else setCloudStatus('Sign in, or create an account for this Firebase project.')
-}
-async function saveCloudConfigFromFields(): Promise<boolean> {
-  const apiKey = el<HTMLInputElement>('#cfApiKey').value.trim()
-  const projectId = el<HTMLInputElement>('#cfProjectId').value.trim()
-  const googleClientId = el<HTMLInputElement>('#cfGoogleId').value.trim() || undefined
-  if (!apiKey || !projectId) {
-    setCloudStatus('Both the API key and project ID are needed.', 'err')
-    return false
-  }
-  await setCloudConfig({ apiKey, projectId, googleClientId })
-  return true
-}
-async function afterCloudSignIn(err: string | null): Promise<void> {
-  if (err) {
-    setCloudStatus(err, 'err')
-    return
-  }
-  setCloudStatus('Signed in — syncing…')
-  const r = await syncNow()
-  if (r.changedLocal) void refreshSavedTabs()
-  setCloudStatus(r.message, r.ok ? 'ok' : 'err')
-  void renderCloudDlg()
-}
-async function cloudAuthAction(create: boolean): Promise<void> {
-  if (!(await saveCloudConfigFromFields())) return
-  const email = el<HTMLInputElement>('#cfEmail').value.trim()
-  const password = el<HTMLInputElement>('#cfPassword').value
-  if (!email || !password) {
-    setCloudStatus('Enter an email and password.', 'err')
-    return
-  }
-  setCloudStatus(create ? 'Creating account…' : 'Signing in…')
-  const err = await cloudSignIn(email, password, create)
-  if (!err) el<HTMLInputElement>('#cfPassword').value = ''
-  await afterCloudSignIn(err)
-}
-el<HTMLButtonElement>('#cloudBtn').addEventListener('click', () => {
-  el<HTMLDivElement>('#wpop').classList.remove('on')
-  cloudDlg.classList.add('on')
-  void renderCloudDlg()
-})
-el<HTMLButtonElement>('#cloudClose').addEventListener('click', () => cloudDlg.classList.remove('on'))
-cloudDlg.addEventListener('click', (e) => {
-  if (e.target === cloudDlg) cloudDlg.classList.remove('on')
-})
-el<HTMLFormElement>('#cloudForm').addEventListener('submit', (e) => {
-  e.preventDefault()
-  void cloudAuthAction(false)
-})
-el<HTMLButtonElement>('#cloudCreateBtn').addEventListener('click', () => void cloudAuthAction(true))
-el<HTMLButtonElement>('#cloudGoogleBtn').addEventListener('click', () => {
-  void (async () => {
-    if (!(await saveCloudConfigFromFields())) return
-    setCloudStatus('Opening Google sign-in…')
-    await afterCloudSignIn(await cloudSignInGoogle())
-  })()
-})
-el<HTMLButtonElement>('#cloudSignOutBtn').addEventListener('click', () => {
-  void cloudSignOut().then(() => {
-    setCloudStatus('Signed out. Your local saved tabs are untouched.')
-    void renderCloudDlg()
-  })
-})
-el<HTMLButtonElement>('#cloudSyncNowBtn').addEventListener('click', () => {
-  setCloudStatus('Syncing…')
-  void syncNow().then((r) => {
-    if (r.changedLocal) void refreshSavedTabs()
-    setCloudStatus(r.message, r.ok ? 'ok' : 'err')
-  })
-})
-
 /* rich icons opt-in */
 const richBtn = el<HTMLButtonElement>('#richBtn')
 function refreshRichBtn(): void {
@@ -2000,22 +1888,8 @@ async function maybeRefreshNotion(): Promise<void> {
 watchSavedTabs(() => {
   void refreshSavedTabs()
   void maybeRefreshNotion()
-  scheduleCloudPush(() => void refreshSavedTabs())
 })
-void preloadNotionCache()
-  .then(() => refreshSavedTabs())
-  .then(() => {
-    // pull-on-open: adopt cloud changes made on other devices
-    void getCloudAuth().then((auth) => {
-    if (!auth) return
-    void syncNow().then((r) => {
-      if (r.changedLocal) {
-        void refreshSavedTabs()
-        toast(r.message)
-      }
-    })
-  })
-})
+void preloadNotionCache().then(() => refreshSavedTabs())
 watchLibrary(() => {
   if (!suppressLibraryReload) void reloadLibraryFromStore()
 })

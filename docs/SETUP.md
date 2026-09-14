@@ -57,11 +57,17 @@ there is no offline queue.
 ### Moving saves made before this version
 
 Earlier versions kept saves in a local browser list. If any are still there, the
-Summarized panel shows a banner — **"N saved tabs from the old local list are not
-in Notion yet"** — with a **Move to Notion** button. It copies them in one at a
-time (deduplicated by URL, so re-running is safe) and only clears the old list
-once **every** one has landed. If some fail, the rest stay exactly where they
-are and the banner offers a retry.
+Summarized panel shows a banner.
+
+- **Notion connected** — *"N saved tabs from the old local list are not in Notion
+  yet"*, with a **Move to Notion** button.
+- **Not connected yet** — *"N saved tabs waiting — connect Notion to move them
+  in"*, with no button, so you know they are safe and where they went.
+
+Moving checks Notion first, then copies them in one at a time (deduplicated by
+URL, so re-running is safe) and clears the old list only once **every** one has
+landed. If some fail, the rest stay exactly where they are and the banner offers
+a retry. If Notion cannot be reached, nothing is moved and nothing is cleared.
 
 ## Notion (required for saving)
 

@@ -309,19 +309,37 @@ async function migrateLegacySaves(btn: HTMLButtonElement): Promise<void> {
   migrating = true
   btn.disabled = true
   btn.textContent = 'Moving…'
-  const rows = legacyPending.map((r) => ({ title: r.title, url: r.url }))
-  toast(`Moving ${rows.length} saved tab${rows.length === 1 ? '' : 's'} into Notion…`)
   try {
+    // Ask Notion before doing anything destructive. The local copy can claim a
+    // page exists when it was archived in Notion since the last sync; trusting
+    // that would skip the row, then clear the old keys and destroy the only
+    // copy of it.
+    if (!(await refreshFromNotion({ quiet: true }))) {
+      toast('Could not reach Notion — nothing was moved')
+      return
+    }
+    const rows = legacyPending.map((r) => ({ title: r.title, url: r.url }))
+    if (!rows.length) {
+      // verified live: every stranded row really is in Notion already
+      await clearLegacySaves()
+      legacyPending = []
+      toast('Those saves are already in Notion')
+      return
+    }
+    toast(`Moving ${rows.length} saved tab${rows.length === 1 ? '' : 's'} into Notion…`)
     const { added, failed } = await pushSavesToNotion(rows)
-    await refreshFromNotion()
+    await refreshFromNotion({ quiet: true })
     if (failed) {
-      await refreshLegacyBanner()
+      // refreshFromNotion has already recomputed what is still stranded
       toast(`Moved ${added}; ${failed} failed and ${failed === 1 ? 'is' : 'are'} still safe locally — try again`)
       return
     }
     await clearLegacySaves()
     legacyPending = []
     toast(added ? `Moved ${added} saved tab${added === 1 ? '' : 's'} into Notion 📔` : 'Those saves were already in Notion')
+  } catch (err) {
+    console.error('[library-tab] migration failed:', err)
+    toast('Migration failed — your saved tabs are untouched, nothing was cleared')
   } finally {
     migrating = false
     renderHomePanels()
@@ -342,7 +360,10 @@ function legacyBanner(): HTMLDivElement | null {
   if (notionConfigured) {
     const btn = document.createElement('button')
     btn.className = 'hsave'
-    btn.textContent = 'Move to Notion'
+    // a repaint can land mid-migration (each pushed save updates the mirror),
+    // so a freshly built button has to show the in-flight state too
+    btn.textContent = migrating ? 'Moving…' : 'Move to Notion'
+    btn.disabled = migrating
     btn.addEventListener('click', () => void migrateLegacySaves(btn))
     bar.appendChild(btn)
   }
@@ -352,14 +373,19 @@ function legacyBanner(): HTMLDivElement | null {
 /** The user-facing refresh: quick, reports what changed, and cannot overlap
     itself. Local is served from the mirror; this is the only path that talks
     to Notion for reads. */
-async function refreshFromNotion(): Promise<void> {
+async function refreshFromNotion(opts: { quiet?: boolean } = {}): Promise<boolean> {
   const before = mirror.items.map((i) => i.pageId)
   const { ran, nodes } = await syncSaves()
   SOURCES.notion.root = nodes
   reindexAll()
   rerender()
-  if (!ran) return // nothing reconciled; syncSaves already explained why
-  toast(syncSummary(before, mirror.items.map((i) => i.pageId)))
+  if (!ran) return false // nothing reconciled; syncSaves already explained why
+  // a sync may have pulled in pages that cover stranded local saves, so the
+  // migration count has to be recomputed against the new mirror
+  await refreshLegacyBanner()
+  if (!location.hash.startsWith('#/explorer')) renderHomePanels()
+  if (!opts.quiet) toast(syncSummary(before, mirror.items.map((i) => i.pageId)))
+  return true
 }
 
 /** Archives a save in Notion and drops it from the mirror. */
@@ -2020,6 +2046,10 @@ void refreshSaves()
   .then(refreshLegacyBanner)
   .then(() => {
     if (!location.hash.startsWith('#/explorer')) renderHomePanels()
+  })
+  .catch((err: unknown) => {
+    console.error('[library-tab] could not load saves at startup:', err)
+    toast('Could not load your saves — see the console')
   })
 watchLibrary(() => {
   if (!suppressLibraryReload) void reloadLibraryFromStore()

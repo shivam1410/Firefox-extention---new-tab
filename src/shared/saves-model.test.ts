@@ -329,3 +329,17 @@ describe('restoreRow', () => {
     expect(m).toEqual(snapshot)
   })
 })
+
+describe('upsert ordering', () => {
+  it('files an older restored row by date instead of pinning it to the top', () => {
+    const m = mirror([item('new', { createdAt: 100 }), item('mid', { createdAt: 50 })])
+    const after = upsert(m, item('old', { createdAt: 10 }))
+    expect(after.items.map((i) => i.pageId)).toEqual(['new', 'mid', 'old'])
+  })
+
+  it('still puts a genuinely new save first, since it has the newest date', () => {
+    const m = mirror([item('a', { createdAt: 10 })])
+    const after = upsert(m, item('fresh', { createdAt: 999 }))
+    expect(after.items.map((i) => i.pageId)).toEqual(['fresh', 'a'])
+  })
+})

@@ -229,21 +229,39 @@ async function syncSaves(): Promise<SyncOutcome> {
     The UI updates immediately; if Notion refuses, that single row is put back
     the way it was and the reason is shown. Rollback is row-scoped on purpose —
     a save arriving while the write was in flight must survive it. */
+const writesInFlight = new Set<string>()
+
 async function mutateSave(
   pageId: string,
   apply: (m: SavesMirror) => SavesMirror,
   request: Record<string, unknown>,
 ): Promise<{ ok: boolean; message: string }> {
-  const before = mirror.items.find((i) => i.pageId === pageId)
-  paintMirror(await updateMirror(apply))
-  rerender()
-  const r = (await extApi?.runtime.sendMessage(request)) as { ok: boolean; message: string } | undefined
-  if (r?.ok) return r
-  paintMirror(await updateMirror((m) => restoreRow(m, pageId, before)))
-  rerender()
-  const message = r?.message ?? 'Could not reach Notion — the change was undone'
-  toast(message)
-  return { ok: false, message }
+  // one change at a time per page: a second write on the same row would roll
+  // back to a snapshot the first has already moved past — resurrecting a row
+  // Notion just archived, or reviving a stale title
+  if (writesInFlight.has(pageId)) return { ok: false, message: 'Still saving the last change to that page — try again in a moment' }
+  writesInFlight.add(pageId)
+  try {
+    // captured inside the serialized update so it reflects what storage really
+    // holds, not what this tab last painted
+    let before: SavedItem | undefined
+    paintMirror(
+      await updateMirror((m) => {
+        before = m.items.find((i) => i.pageId === pageId)
+        return apply(m)
+      }),
+    )
+    rerender()
+    const r = (await extApi?.runtime.sendMessage(request)) as { ok: boolean; message: string } | undefined
+    if (r?.ok) return r
+    paintMirror(await updateMirror((m) => restoreRow(m, pageId, before)))
+    rerender()
+    const message = r?.message ?? 'Could not reach Notion — the change was undone'
+    toast(message)
+    return { ok: false, message }
+  } finally {
+    writesInFlight.delete(pageId)
+  }
 }
 
 /** Renames a node wherever it lives: a Notion save goes through Notion, and
@@ -252,7 +270,9 @@ function commitRename(n: TreeNode, title: string, after: () => void): void {
   if (n.type === 'link' && n.notionId) {
     const pageId = n.notionId
     void mutateSave(pageId, (m) => applyRename(m, pageId, title), { type: 'notion.rename', pageId, title }).then((r) => {
-      if (r.ok) toast(`Renamed to “${title}”`)
+      if (!r.ok) return
+      toast(`Renamed to “${title}”`)
+      after()
     })
     return
   }
@@ -279,11 +299,7 @@ async function refreshFromNotion(): Promise<void> {
 
 /** Archives a save in Notion and drops it from the mirror. */
 function archiveNotionNode(n: LinkNode): void {
-  deleteNode(n)
-  renderHome()
-  if (location.hash.startsWith('#/explorer')) renderExplorer()
-  else renderHomePanels()
-  toast(`Archived “${n.title}” in Notion`)
+  deleteNode(n) // async: it repaints and reports its own outcome
 }
 
 async function refreshSource(k: SourceKey): Promise<void> {
@@ -332,8 +348,12 @@ function isEditing(): boolean {
 }
 const rerender = debounce(() => {
   if (isEditing()) return
-  if (location.hash.startsWith('#/explorer')) renderExplorer()
-  else renderHomePanels()
+  if (location.hash.startsWith('#/explorer')) {
+    renderExplorer()
+    return
+  }
+  renderHome() // the tile grid lives here; without it saved tiles never update
+  renderHomePanels()
 }, 80)
 
 /* ---------- library persistence ---------- */
@@ -555,14 +575,8 @@ function renderHome(): void {
     b.tabIndex = 0
     b.setAttribute('role', 'button')
     b.innerHTML = tileIcon(n) + `<span class="lb">${esc(n.title)}</span>`
-    const openNotion = document.createElement('button')
-    openNotion.className = 'savb'
-    openNotion.title = 'Open in Notion'
-    openNotion.textContent = '📔'
-    openNotion.addEventListener('click', (e) => {
-      e.stopPropagation()
-      void openUrl(n.notionUrl ?? n.url, false)
-    })
+    const openNotion = actBtn('📔', 'Open in Notion', () => void openUrl(n.notionUrl ?? n.url, false))
+    openNotion.className = 'savb' // always visible, unlike the hover-only .hact
     b.appendChild(openNotion)
     const tdel = document.createElement('button')
     tdel.className = 'tdel hact'
@@ -1509,7 +1523,7 @@ function rowEl(n: TreeNode): HTMLElement {
   if (s.caps.del && !n.locked)
     r.appendChild(
       actBtn('✕', s.delLabel, () => {
-        deleteNode(n)
+        if (deleteNode(n)) return // async: reports its own outcome
         renderExplorer()
         toast(`${s.delLabel}: “${n.title}”`)
       }),
@@ -1645,7 +1659,9 @@ function doDrop(targetSrc: SourceKey, targetFolder: FolderNode | null, e: DragEv
 }
 
 /* ---------- deletion (per source) ---------- */
-function deleteNode(n: TreeNode): void {
+/** Returns true when the delete is asynchronous and reports its own outcome —
+    callers must not announce success themselves in that case. */
+function deleteNode(n: TreeNode): boolean {
   const owner = OWNER.get(n.id)
   if (owner === 'tabs' && n.type === 'link' && n.tabId !== undefined) {
     void closeTab(n.tabId).catch(() => toast('Couldn\'t close that tab'))
@@ -1655,12 +1671,16 @@ function deleteNode(n: TreeNode): void {
     void deleteHistoryUrl(n.url).catch(() => toast('Couldn\'t remove that URL'))
   } else if (owner === 'notion' && n.notionId) {
     const pageId = n.notionId
-    // the mirror owns this row now: it repaints on success and on rollback
-    void mutateSave(pageId, (m) => applyArchive(m, pageId), { type: 'notion.archive', pageId })
-    return
+    // the mirror owns this row now: it repaints on success and on rollback, and
+    // owns the toast too, so nothing announces success before Notion confirms
+    void mutateSave(pageId, (m) => applyArchive(m, pageId), { type: 'notion.archive', pageId }).then((r) => {
+      if (r.ok) toast(`Archived “${n.title}” in Notion`)
+    })
+    return true
   }
   detach(n) // optimistic; live events re-sync the authoritative tree
   if (owner === 'library' || owner === 'grid') persistLibrary()
+  return false
 }
 
 /* ---------- context menu ---------- */
@@ -1781,10 +1801,12 @@ function ctxMenu(e: MouseEvent, n: TreeNode, src: SourceKey | 'grid'): void {
   // reads, so they are deliberately not pre-warmed
   else if (n.type === 'link' && n.notionId && n.saveType === 'Quick') {
     const pageId = n.notionId
-    const next = !n.hot
     items.push({
       lbl: n.hot ? 'Remove from hot apps' : 'Mark as hot app 🔥',
       on: () => {
+        // read the flag now, not when the menu was built: it may have changed
+        // underneath (another device, a refresh) while the menu sat open
+        const next = !mirror.items.find((i) => i.pageId === pageId)?.hot
         void mutateSave(pageId, (m) => applyHot(m, pageId, next), { type: 'notion.setHot', pageId, hot: next }).then(
           (r) => {
             if (!r.ok) return
@@ -1813,7 +1835,7 @@ function ctxMenu(e: MouseEvent, n: TreeNode, src: SourceKey | 'grid'): void {
         persistLibrary()
         renderHome()
       } else {
-        deleteNode(n)
+        if (deleteNode(n)) return // async: reports its own outcome
         renderHome()
         if (location.hash.startsWith('#/explorer')) renderExplorer()
         else renderHomePanels()

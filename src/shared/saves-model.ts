@@ -128,13 +128,17 @@ export function restoreRow(m: SavesMirror, pageId: string, row: SavedItem | unde
 
     Refreshing goes through the same `carryLocal` merge as `reconcile`, so a
     page that Notion deduped onto an existing row keeps the favicon and
-    device-local hot flag this device had already cached for it. */
+    device-local hot flag this device had already cached for it.
+
+    Keeps the mirror in `createdAt` order — the same order `reconcile` produces
+    — so the list never depends on how rows happened to arrive. */
 export function upsert(m: SavesMirror, item: SavedItem): SavesMirror {
   const existing = m.items.find((i) => i.pageId === item.pageId)
   const merged = carryLocal(item, existing, m.hotIsLocal)
-  return existing
-    ? mapRow(m, item.pageId, () => merged)
-    : { ...m, items: [merged, ...m.items] }
+  const items = existing
+    ? m.items.map((i) => (i.pageId === item.pageId ? merged : i))
+    : [merged, ...m.items]
+  return { ...m, items: [...items].sort((a, b) => b.createdAt - a.createdAt) }
 }
 
 /** The legacy rows still worth pushing to Notion: those with a usable URL that

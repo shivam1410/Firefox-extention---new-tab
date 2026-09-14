@@ -21,7 +21,10 @@ import { PREVIEW_BOOKMARKS, PREVIEW_HISTORY, PREVIEW_TABS } from './preview-data
 import {
   EMPTY_MIRROR,
   applyArchive,
+  applyHot,
+  applyRename,
   reconcile,
+  restoreRow,
   syncSummary,
   type SavedItem,
   type SavesMirror,
@@ -73,7 +76,7 @@ const SOURCES: Record<SourceKey, Source> = {
   },
   notion: {
     key: 'notion', label: 'Notion', glyph: '📔', delLabel: 'Archive in Notion', isLive: false,
-    caps: { del: true },
+    caps: { rename: true, del: true },
     root: [],
   },
 }
@@ -219,6 +222,46 @@ async function syncSaves(): Promise<SyncOutcome> {
   } finally {
     syncing = false
   }
+}
+
+/** Applies a change to one save optimistically, then tells Notion.
+
+    The UI updates immediately; if Notion refuses, that single row is put back
+    the way it was and the reason is shown. Rollback is row-scoped on purpose —
+    a save arriving while the write was in flight must survive it. */
+async function mutateSave(
+  pageId: string,
+  apply: (m: SavesMirror) => SavesMirror,
+  request: Record<string, unknown>,
+): Promise<{ ok: boolean; message: string }> {
+  const before = mirror.items.find((i) => i.pageId === pageId)
+  paintMirror(await updateMirror(apply))
+  rerender()
+  const r = (await extApi?.runtime.sendMessage(request)) as { ok: boolean; message: string } | undefined
+  if (r?.ok) return r
+  paintMirror(await updateMirror((m) => restoreRow(m, pageId, before)))
+  rerender()
+  const message = r?.message ?? 'Could not reach Notion — the change was undone'
+  toast(message)
+  return { ok: false, message }
+}
+
+/** Renames a node wherever it lives: a Notion save goes through Notion, and
+    anything else keeps its existing local or bookmark behaviour. */
+function commitRename(n: TreeNode, title: string, after: () => void): void {
+  if (n.type === 'link' && n.notionId) {
+    const pageId = n.notionId
+    void mutateSave(pageId, (m) => applyRename(m, pageId, title), { type: 'notion.rename', pageId, title }).then((r) => {
+      if (r.ok) toast(`Renamed to “${title}”`)
+    })
+    return
+  }
+  n.title = title
+  if (OWNER.get(n.id) === 'bookmarks' && n.bmId && SOURCES.bookmarks.isLive)
+    void renameBookmark(n.bmId, title).catch(() => toast('Firefox refused that rename'))
+  if (isLibraryNode(n)) persistLibrary()
+  toast(`Renamed to “${title}”`)
+  after()
 }
 
 /** The user-facing refresh: quick, reports what changed, and cannot overlap
@@ -511,7 +554,16 @@ function renderHome(): void {
     b.className = 'tile'
     b.tabIndex = 0
     b.setAttribute('role', 'button')
-    b.innerHTML = tileIcon(n) + `<span class="lb">${esc(n.title)}</span><span class="savb" title="Saved in Notion">📔</span>`
+    b.innerHTML = tileIcon(n) + `<span class="lb">${esc(n.title)}</span>`
+    const openNotion = document.createElement('button')
+    openNotion.className = 'savb'
+    openNotion.title = 'Open in Notion'
+    openNotion.textContent = '📔'
+    openNotion.addEventListener('click', (e) => {
+      e.stopPropagation()
+      void openUrl(n.notionUrl ?? n.url, false)
+    })
+    b.appendChild(openNotion)
     const tdel = document.createElement('button')
     tdel.className = 'tdel hact'
     tdel.title = 'Archive in Notion'
@@ -1603,8 +1655,9 @@ function deleteNode(n: TreeNode): void {
     void deleteHistoryUrl(n.url).catch(() => toast('Couldn\'t remove that URL'))
   } else if (owner === 'notion' && n.notionId) {
     const pageId = n.notionId
-    void extApi?.runtime.sendMessage({ type: 'notion.archive', pageId })
-    void updateMirror((m) => applyArchive(m, pageId)).then(paintMirror)
+    // the mirror owns this row now: it repaints on success and on rollback
+    void mutateSave(pageId, (m) => applyArchive(m, pageId), { type: 'notion.archive', pageId })
+    return
   }
   detach(n) // optimistic; live events re-sync the authoritative tree
   if (owner === 'library' || owner === 'grid') persistLibrary()
@@ -1687,15 +1740,12 @@ function ctxMenu(e: MouseEvent, n: TreeNode, src: SourceKey | 'grid'): void {
       }
       const lbl = srcEl?.querySelector<HTMLElement>('.lb, .ttl')
       if (!lbl) return
-      inlineRename(lbl, n.title, (t) => {
-        n.title = t
-        if (OWNER.get(n.id) === 'bookmarks' && n.bmId && SOURCES.bookmarks.isLive)
-          void renameBookmark(n.bmId, t).catch(() => toast('Firefox refused that rename'))
-        if (isLibraryNode(n)) persistLibrary()
-        toast(`Renamed to “${t}”`)
-        renderHome()
-        if (!location.hash.startsWith('#/explorer')) renderHomePanels()
-      })
+      inlineRename(lbl, n.title, (t) =>
+        commitRename(n, t, () => {
+          renderHome()
+          if (!location.hash.startsWith('#/explorer')) renderHomePanels()
+        }),
+      )
     },
   })
   items.push({ lbl: 'Move to…', dis: !c.move || locked, on: () => toast('Coming in P7: folder picker dialog') })
@@ -1727,6 +1777,29 @@ function ctxMenu(e: MouseEvent, n: TreeNode, src: SourceKey | 'grid'): void {
         toast(n.hot ? 'Marked hot 🔥 — pre-warms at browser startup, opens instantly' : `“${n.title}” unmarked`)
       },
     })
+  // Quick saves are apps you want already running; Summary saves are long
+  // reads, so they are deliberately not pre-warmed
+  else if (n.type === 'link' && n.notionId && n.saveType === 'Quick') {
+    const pageId = n.notionId
+    const next = !n.hot
+    items.push({
+      lbl: n.hot ? 'Remove from hot apps' : 'Mark as hot app 🔥',
+      on: () => {
+        void mutateSave(pageId, (m) => applyHot(m, pageId, next), { type: 'notion.setHot', pageId, hot: next }).then(
+          (r) => {
+            if (!r.ok) return
+            if (!next) toast(`“${n.title}” unmarked`)
+            else
+              toast(
+                mirror.hotIsLocal
+                  ? 'Marked hot 🔥 — pre-warms at startup (this device only: add a checkbox property to sync it)'
+                  : 'Marked hot 🔥 — pre-warms at browser startup, opens instantly',
+              )
+          },
+        )
+      },
+    })
+  }
   if (n.type === 'link') items.push({ lbl: 'Refresh icon', on: () => toast('Coming in P3: re-fetch icon & title from page metadata') })
   items.push({ hr: true })
   items.push({
@@ -1760,14 +1833,7 @@ function startRename(n: TreeNode): void {
   if (idx < 0 || !target) return
   const ttl = target.querySelector<HTMLElement>('.ttl')
   if (!ttl) return
-  inlineRename(ttl, n.title, (t) => {
-    n.title = t
-    if (OWNER.get(n.id) === 'bookmarks' && n.bmId && SOURCES.bookmarks.isLive)
-      void renameBookmark(n.bmId, t).catch(() => toast('Firefox refused that rename'))
-    if (isLibraryNode(n)) persistLibrary()
-    toast(`Renamed to “${t}”`)
-    renderExplorer()
-  })
+  inlineRename(ttl, n.title, (t) => commitRename(n, t, renderExplorer))
 }
 
 /* ---------- routing (#/home | #/explorer) ---------- */

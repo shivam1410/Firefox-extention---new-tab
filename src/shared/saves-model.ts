@@ -112,6 +112,18 @@ export function applyHot(m: SavesMirror, pageId: string, hot: boolean): SavesMir
   return mapRow(m, pageId, (i) => ({ ...i, hot }))
 }
 
+/** Undoes one failed optimistic edit by putting a single row back the way it
+    was — `undefined` meaning it did not exist and should be removed again.
+
+    Deliberately row-scoped rather than restoring a whole pre-edit snapshot: a
+    save landing while the write was in flight must survive the rollback, and
+    replaying a stale mirror would delete it. */
+export function restoreRow(m: SavesMirror, pageId: string, row: SavedItem | undefined): SavesMirror {
+  if (!row) return applyArchive(m, pageId)
+  const others = m.items.filter((i) => i.pageId !== pageId)
+  return { ...m, items: [...others, row].sort((a, b) => b.createdAt - a.createdAt) }
+}
+
 /** Adds a newly created save, or refreshes one already present.
 
     Refreshing goes through the same `carryLocal` merge as `reconcile`, so a

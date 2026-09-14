@@ -6,6 +6,7 @@ import {
   applyRename,
   pendingMigration,
   reconcile,
+  restoreRow,
   syncSummary,
   upsert,
   type LegacySave,
@@ -275,5 +276,56 @@ describe('syncSummary', () => {
 
   it('says so when there is nothing at all', () => {
     expect(syncSummary([], [])).toBe('In sync — 0 saves')
+  })
+})
+
+describe('restoreRow', () => {
+  it('puts an archived row back when Notion refuses the archive', () => {
+    const before = mirror([item('a'), item('b')])
+    const removed = applyArchive(before, 'a')
+    const back = restoreRow(removed, 'a', item('a'))
+    expect(back.items.map((i) => i.pageId).sort()).toEqual(['a', 'b'])
+  })
+
+  it('puts the row back in date order, not at the end', () => {
+    const rowA = item('a', { createdAt: 20 })
+    const before = mirror([item('c', { createdAt: 30 }), rowA, item('b', { createdAt: 10 })])
+    const back = restoreRow(applyArchive(before, 'a'), 'a', rowA)
+    expect(back.items.map((i) => i.pageId)).toEqual(['c', 'a', 'b'])
+  })
+
+  it('restores the previous title when Notion refuses a rename', () => {
+    const original = item('a', { title: 'original' })
+    const renamed = applyRename(mirror([original]), 'a', 'attempted')
+    const back = restoreRow(renamed, 'a', original)
+    expect(back.items[0]?.title).toBe('original')
+  })
+
+  it('restores the previous hot flag when Notion refuses the checkbox write', () => {
+    const original = item('a', { hot: false })
+    const toggled = applyHot(mirror([original]), 'a', true)
+    expect(restoreRow(toggled, 'a', original).items[0]?.hot).toBe(false)
+  })
+
+  it('removes the row when it did not exist before the change', () => {
+    const added = upsert(mirror([item('b')]), item('a'))
+    const back = restoreRow(added, 'a', undefined)
+    expect(back.items.map((i) => i.pageId)).toEqual(['b'])
+  })
+
+  it('leaves rows that arrived during the failed write alone', () => {
+    // a save landing mid-flight must survive the rollback — restoring a whole
+    // stale snapshot would have deleted it
+    const before = mirror([item('a', { createdAt: 10 })])
+    const during = upsert(applyArchive(before, 'a'), item('new', { createdAt: 99 }))
+    const back = restoreRow(during, 'a', item('a', { createdAt: 10 }))
+    expect(back.items.map((i) => i.pageId)).toEqual(['new', 'a'])
+  })
+
+  it('does not mutate the input', () => {
+    const m = mirror([item('a')])
+    const snapshot = structuredClone(m)
+    restoreRow(m, 'a', item('a', { title: 'x' }))
+    expect(m).toEqual(snapshot)
   })
 })

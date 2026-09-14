@@ -8,6 +8,7 @@ import {
   defaultHost,
   clearLegacySaves,
   loadLegacySaves,
+  updateMirror,
   loadMirror,
   saveMirror,
   watchMirror,
@@ -155,6 +156,43 @@ describe('saveMirror', () => {
     await saveMirror({ ...EMPTY_MIRROR, items: [item('a')] }, host)
     expect(host.localData.has(MIRROR_KEY)).toBe(true)
     expect(host.syncData.has(MIRROR_KEY)).toBe(false)
+  })
+})
+
+describe('updateMirror', () => {
+  it('serializes concurrent read-modify-writes so neither save is lost', async () => {
+    // two saves landing at once: without serialization both read the same
+    // mirror and the second write silently drops the first
+    await Promise.all([
+      updateMirror((m) => ({ ...m, items: [...m.items, item('a')] }), host),
+      updateMirror((m) => ({ ...m, items: [...m.items, item('b')] }), host),
+    ])
+    const m = await loadMirror(host)
+    expect(m.items.map((i) => i.pageId).sort()).toEqual(['a', 'b'])
+  })
+
+  it('applies a whole burst of updates in order', async () => {
+    await Promise.all(
+      ['a', 'b', 'c', 'd', 'e'].map((id) => updateMirror((m) => ({ ...m, items: [...m.items, item(id)] }), host)),
+    )
+    const m = await loadMirror(host)
+    expect(m.items).toHaveLength(5)
+  })
+
+  it('resolves with the mirror it just wrote', async () => {
+    const written = await updateMirror((m) => ({ ...m, items: [item('a')] }), host)
+    expect(written.items.map((i) => i.pageId)).toEqual(['a'])
+  })
+
+  it('does not wedge the queue when one update throws', async () => {
+    await expect(
+      updateMirror(() => {
+        throw new Error('bad change')
+      }, host),
+    ).rejects.toThrow('bad change')
+    await updateMirror((m) => ({ ...m, items: [item('after')] }), host)
+    const m = await loadMirror(host)
+    expect(m.items.map((i) => i.pageId)).toEqual(['after'])
   })
 })
 

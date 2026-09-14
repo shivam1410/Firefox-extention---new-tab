@@ -16,14 +16,17 @@ import {
 import { llmSummarize, setOpenRouterConfig } from './llm'
 import { collectHotUrls, type HotLibrary } from '../shared/hot-apps'
 import { upsert } from '../shared/saves-model'
-import { loadMirror, saveMirror } from '../shared/saves-store'
+import { loadMirror, updateMirror } from '../shared/saves-store'
 
 /** Folds a freshly saved page into the local mirror. Writing the mirror is
     what wakes every open new tab — `watchMirror` fires on the change, so a save
     made from the toolbar popup repaints surfaces this page never knew about. */
 async function rememberSave(result: SaveResult): Promise<void> {
   if (!result.ok || !result.item) return
-  await saveMirror(upsert(await loadMirror(), result.item))
+  const item = result.item
+  // serialized: saving several tabs at once must not have one write clobber
+  // the mirror another just read
+  await updateMirror((mirror) => upsert(mirror, item))
 }
 
 async function flashBadge(text: string): Promise<void> {

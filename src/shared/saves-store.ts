@@ -138,6 +138,37 @@ export async function saveMirror(mirror: SavesMirror, host: StorageHost = defaul
   }
 }
 
+/* Mirror writes are read-modify-write against one storage key, so two of them
+   in flight at once would both read the same value and the later write would
+   silently drop the earlier one — losing a save the user just made from the
+   repaint signal. Chaining them keeps each update reading what the last one
+   wrote.
+
+   This serializes within a single context, which is where the real races
+   happen: the save-all-open-tabs loop, a double-clicked button, or a popup
+   save completing while a capture does. A write from a *different* context
+   racing this one is still possible and is not fixed here — it self-heals on
+   the next refresh, since Notion holds the truth. */
+let writes: Promise<unknown> = Promise.resolve()
+
+/** Applies `change` to the current mirror and persists the result, serialized
+    against every other call. Prefer this over load/save whenever the new value
+    depends on the old one. */
+export function updateMirror(
+  change: (mirror: SavesMirror) => SavesMirror,
+  host: StorageHost = defaultHost(),
+): Promise<SavesMirror> {
+  const next = writes.then(async () => {
+    const updated = change(await loadMirror(host))
+    await saveMirror(updated, host)
+    return updated
+  })
+  // keep the chain alive even if this link rejects, so one bad update cannot
+  // wedge every later write
+  writes = next.catch(() => undefined)
+  return next
+}
+
 /** Calls back whenever the mirror changes — including when this very context
     wrote it, which is what keeps every open new tab in step. Repaints driven by
     this must therefore be idempotent. */

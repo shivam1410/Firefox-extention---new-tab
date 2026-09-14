@@ -60,3 +60,14 @@ describe('collectHotUrls', () => {
     expect(collectHotUrls({ grid: undefined, root: undefined }, [])).toEqual([])
   })
 })
+
+describe('collectHotUrls — corrupt input', () => {
+  it('does not throw when grid or root is present but not an array', () => {
+    expect(collectHotUrls({ grid: 42, root: {} }, [])).toEqual([])
+  })
+
+  it('does not throw when the library value is not an object at all', () => {
+    expect(collectHotUrls('nonsense', [])).toEqual([])
+    expect(collectHotUrls(null, [])).toEqual([])
+  })
+})

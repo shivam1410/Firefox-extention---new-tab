@@ -19,8 +19,15 @@ export interface HotLibrary {
   grid?: HotLibraryNode[]
 }
 
-function walk(nodes: HotLibraryNode[] | undefined, into: string[]): void {
-  for (const node of nodes ?? []) {
+function isLibrary(v: unknown): v is HotLibrary {
+  return typeof v === 'object' && v !== null
+}
+
+function walk(nodes: unknown, into: string[]): void {
+  // a partially-written or older `library` value may hold something that is not
+  // an array here; pre-warming should quietly do nothing rather than throw
+  if (!Array.isArray(nodes)) return
+  for (const node of nodes as HotLibraryNode[]) {
     if (node.t === 'l' && node.hot && node.url) into.push(node.url)
     if (node.t === 'f') walk(node.kids, into)
   }
@@ -28,10 +35,12 @@ function walk(nodes: HotLibraryNode[] | undefined, into: string[]): void {
 
 /** Deduped, in a stable order: library first, then Notion Quick saves. A URL
     that is both only opens once. */
-export function collectHotUrls(library: HotLibrary | undefined, saves: SavedItem[]): string[] {
+export function collectHotUrls(library: unknown, saves: SavedItem[]): string[] {
   const urls: string[] = []
-  walk(library?.grid, urls)
-  walk(library?.root, urls)
+  if (isLibrary(library)) {
+    walk(library.grid, urls)
+    walk(library.root, urls)
+  }
   for (const save of saves) if (save.hot && save.saveType === 'Quick' && save.url) urls.push(save.url)
   return [...new Set(urls)]
 }

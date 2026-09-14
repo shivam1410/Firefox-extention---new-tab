@@ -137,3 +137,17 @@ export function pendingMigration(m: SavesMirror, legacy: LegacySave[]): LegacySa
   }
   return out
 }
+
+/** The one-line result of a refresh, in the user's terms: what actually moved,
+    or the total when nothing did. Pure so the wording is pinned by tests. */
+export function syncSummary(beforeIds: string[], afterIds: string[]): string {
+  const before = new Set(beforeIds)
+  const after = new Set(afterIds)
+  const added = afterIds.filter((id) => !before.has(id)).length
+  const archived = beforeIds.filter((id) => !after.has(id)).length
+  if (!added && !archived) return `In sync — ${after.size} save${after.size === 1 ? '' : 's'}`
+  const parts: string[] = []
+  if (added) parts.push(`${added} new`)
+  if (archived) parts.push(`${archived} archived`)
+  return `Synced with Notion — ${parts.join(', ')}`
+}

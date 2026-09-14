@@ -1,5 +1,4 @@
 import './popup.css'
-import { saveTab } from '../app/saved-tabs'
 
 declare const window: Window & { browser?: typeof browser }
 const api = window.browser
@@ -42,16 +41,15 @@ el<HTMLButtonElement>('#pQuick').addEventListener('click', () => {
   const t = current
   void (async () => {
     const box = await api.storage.local.get('notionCfg')
-    if (box['notionCfg']) {
-      setStatus('Saving to Notion…', 'busy')
-      const r = (await api.runtime.sendMessage({ type: 'notion.saveQuick', title: t.title ?? '', url: t.url ?? '' })) as
-        | { ok: boolean; message: string }
-        | undefined
-      setStatus(r?.message ?? 'No response — try again.', r?.ok ? 'ok' : 'err')
+    if (!box['notionCfg']) {
+      setStatus('Connect Notion first — open Settings below.', 'err')
       return
     }
-    const added = await saveTab({ title: t.title || t.url || '', url: t.url ?? '', favicon: t.favIconUrl })
-    setStatus(added ? 'Saved 🔖 — it\'s on your new tab.' : 'Already in your saved tabs.', 'ok')
+    setStatus('Saving to Notion…', 'busy')
+    const r = (await api.runtime.sendMessage({ type: 'notion.saveQuick', title: t.title ?? '', url: t.url ?? '' })) as
+      | { ok: boolean; message: string }
+      | undefined
+    setStatus(r?.message ?? 'No response — try again.', r?.ok ? 'ok' : 'err')
   })()
 })
 

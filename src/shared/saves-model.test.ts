@@ -6,6 +6,7 @@ import {
   applyRename,
   pendingMigration,
   reconcile,
+  syncSummary,
   upsert,
   type LegacySave,
   type SavedItem,
@@ -240,5 +241,39 @@ describe('EMPTY_MIRROR', () => {
   it('is frozen deeply enough that a stray push cannot corrupt the shared constant', () => {
     expect(Object.isFrozen(EMPTY_MIRROR)).toBe(true)
     expect(Object.isFrozen(EMPTY_MIRROR.items)).toBe(true)
+  })
+})
+
+describe('syncSummary', () => {
+  it('reports a quiet sync with the total', () => {
+    expect(syncSummary(['a', 'b'], ['a', 'b'])).toBe('In sync — 2 saves')
+  })
+
+  it('uses the singular for one save', () => {
+    expect(syncSummary(['a'], ['a'])).toBe('In sync — 1 save')
+  })
+
+  it('reports additions', () => {
+    expect(syncSummary(['a'], ['a', 'b', 'c'])).toBe('Synced with Notion — 2 new')
+  })
+
+  it('reports pages archived in Notion', () => {
+    expect(syncSummary(['a', 'b'], ['a'])).toBe('Synced with Notion — 1 archived')
+  })
+
+  it('reports both directions at once', () => {
+    expect(syncSummary(['a', 'b'], ['a', 'c'])).toBe('Synced with Notion — 1 new, 1 archived')
+  })
+
+  it('handles a first sync from empty', () => {
+    expect(syncSummary([], ['a', 'b'])).toBe('Synced with Notion — 2 new')
+  })
+
+  it('handles an emptied database', () => {
+    expect(syncSummary(['a'], [])).toBe('Synced with Notion — 1 archived')
+  })
+
+  it('says so when there is nothing at all', () => {
+    expect(syncSummary([], [])).toBe('In sync — 0 saves')
   })
 })

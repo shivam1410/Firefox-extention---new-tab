@@ -18,11 +18,11 @@ import {
   watchTabs,
 } from './live-sources'
 import { PREVIEW_BOOKMARKS, PREVIEW_HISTORY, PREVIEW_TABS } from './preview-data'
-import { importSavedTabs, type SavedTab } from './saved-tabs'
 import {
   EMPTY_MIRROR,
   applyArchive,
   reconcile,
+  syncSummary,
   type SavedItem,
   type SavesMirror,
 } from '../shared/saves-model'
@@ -225,22 +225,13 @@ async function syncSaves(): Promise<SyncOutcome> {
     itself. Local is served from the mirror; this is the only path that talks
     to Notion for reads. */
 async function refreshFromNotion(): Promise<void> {
-  const before = new Set(mirror.items.map((i) => i.pageId))
+  const before = mirror.items.map((i) => i.pageId)
   const { ran, nodes } = await syncSaves()
   SOURCES.notion.root = nodes
   reindexAll()
   rerender()
   if (!ran) return // nothing reconciled; syncSaves already explained why
-  const added = mirror.items.filter((i) => !before.has(i.pageId)).length
-  const removed = [...before].filter((id) => !mirror.items.some((i) => i.pageId === id)).length
-  const total = mirror.items.length
-  if (!added && !removed) toast(`In sync — ${total} save${total === 1 ? '' : 's'}`)
-  else {
-    const parts: string[] = []
-    if (added) parts.push(`${added} new`)
-    if (removed) parts.push(`${removed} archived`)
-    toast(`Synced with Notion — ${parts.join(', ')}`)
-  }
+  toast(syncSummary(before, mirror.items.map((i) => i.pageId)))
 }
 
 /** Archives a save in Notion and drops it from the mirror. */
@@ -547,7 +538,7 @@ function renderHome(): void {
     const hint = document.createElement('div')
     hint.className = 'gridhint'
     hint.textContent =
-      'Sites you save (toolbar click or 🔖) show up here automatically. You can also pin permanently — click Add, or right-click anything and choose “Pin to new tab”.'
+      'Quick saves from Notion show up here automatically — hit 🔖 on any tab, or the toolbar button. You can also pin permanently: click Add, or right-click anything and choose “Pin to new tab”.'
     g.appendChild(hint)
   }
   requestIconsFor(
@@ -641,6 +632,25 @@ function hrow(n: TreeNode, opts: { indent?: boolean; head?: boolean; chev?: bool
   b.innerHTML = `${chev}${icon}<span class="ttl">${esc(n.title)}</span>`
   return b
 }
+/** Notion allows roughly three requests a second; bulk writes are paced. */
+const NOTION_WRITE_GAP_MS = 350
+
+/** Pushes rows into Notion one at a time, deduped server-side by URL.
+    Used by "save all open tabs" and by restoring a backup. */
+async function pushSavesToNotion(rows: Array<{ title: string; url: string }>): Promise<{ added: number; failed: number }> {
+  let added = 0
+  let failed = 0
+  for (const [i, row] of rows.entries()) {
+    if (i) await new Promise((done) => window.setTimeout(done, NOTION_WRITE_GAP_MS))
+    const r = (await extApi?.runtime.sendMessage({ type: 'notion.saveQuick', title: row.title, url: row.url })) as
+      | { ok: boolean; message: string }
+      | undefined
+    if (!r?.ok) failed++
+    else if (!r.message.startsWith('Already')) added++
+  }
+  return { added, failed }
+}
+
 /** Quick save: a Notion page with title, link and tags — no summary. */
 function saveTabAndShow(t: { title: string; url: string; favicon?: string }): void {
   void (async () => {
@@ -789,14 +799,9 @@ el<HTMLButtonElement>('#saveAllBtn').addEventListener('click', () => {
       return
     }
     toast(`Saving ${tabs.length} tab${tabs.length > 1 ? 's' : ''} to Notion…`)
-    let added = 0
-    for (const t of tabs) {
-      const r = (await extApi.runtime.sendMessage({ type: 'notion.saveQuick', title: t.title, url: t.url })) as
-        | { ok: boolean; message: string }
-        | undefined
-      if (r?.ok && !r.message.startsWith('Already')) added++
-    }
-    toast(added ? `Saved ${added} tab${added > 1 ? 's' : ''} to Notion 📔` : 'All open tabs were already saved')
+    const { added, failed } = await pushSavesToNotion(tabs.map((t) => ({ title: t.title, url: t.url })))
+    if (failed) toast(`Saved ${added}, but ${failed} failed — check the Notion connection`)
+    else toast(added ? `Saved ${added} tab${added > 1 ? 's' : ''} to Notion 📔` : 'All open tabs were already saved')
   })()
 })
 
@@ -1112,16 +1117,23 @@ importFile.addEventListener('change', () => {
   importFile.value = ''
   if (!file) return
   void file.text().then(async (text) => {
-    let backup: { savedTabs?: unknown; library?: { root?: unknown; grid?: unknown } }
+    let backup: { saves?: unknown; savedTabs?: unknown; library?: { root?: unknown; grid?: unknown } }
     try {
       backup = JSON.parse(text) as typeof backup
     } catch {
       toast('That file isn\'t a valid Library Tab backup')
       return
     }
-    const addedSaved = Array.isArray(backup.savedTabs)
-      ? await importSavedTabs(backup.savedTabs as Array<Partial<SavedTab>>)
-      : 0
+    // `saves` is this version's key; `savedTabs` restores older backups
+    const rawSaves = Array.isArray(backup.saves) ? backup.saves : Array.isArray(backup.savedTabs) ? backup.savedTabs : []
+    const savedRows: Array<{ title: string; url: string }> = []
+    for (const row of rawSaves as unknown[]) {
+      if (typeof row !== 'object' || row === null) continue
+      const r = row as Record<string, unknown>
+      const url = typeof r['url'] === 'string' ? r['url'] : ''
+      if (!url) continue
+      savedRows.push({ title: typeof r['title'] === 'string' && r['title'] ? r['title'] : url, url })
+    }
     const root = reviveNodes(backup.library?.root)
     const grid = reviveNodes(backup.library?.grid)
     const gridUrls = new Set(GRID.filter((n): n is LinkNode => n.type === 'link').map((n) => n.url))
@@ -1139,7 +1151,20 @@ importFile.addEventListener('change', () => {
     persistLibrary()
     renderHome()
     if (location.hash.startsWith('#/explorer')) renderExplorer()
-    toast(`Restored ${addedSaved} saved tab${addedSaved === 1 ? '' : 's'} and ${addedLib} library item${addedLib === 1 ? '' : 's'}`)
+    toast(`Restored ${addedLib} library item${addedLib === 1 ? '' : 's'}`)
+
+    // saved pages have to go back through Notion — writing them only to the
+    // mirror would get them dropped by the next reconcile
+    if (!savedRows.length) return
+    if ((await getNotionCfg()) === null || !extApi?.runtime) {
+      toast(`${savedRows.length} saved page${savedRows.length === 1 ? '' : 's'} skipped — connect Notion, then import again`)
+      return
+    }
+    toast(`Restoring ${savedRows.length} saved page${savedRows.length === 1 ? '' : 's'} to Notion…`)
+    const { added, failed } = await pushSavesToNotion(savedRows)
+    await refreshFromNotion()
+    if (failed) toast(`Restored ${added}, but ${failed} failed — check the Notion connection`)
+    else toast(added ? `Restored ${added} saved page${added === 1 ? '' : 's'} to Notion 📔` : 'Those saves were already in Notion')
   })
 })
 

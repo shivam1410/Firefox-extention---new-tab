@@ -193,37 +193,44 @@ function paintMirror(next: SavesMirror): void {
     user archived everything", so reconciling a failure would wipe the page. */
 let syncing = false
 
-async function syncSaves(): Promise<TreeNode[]> {
+interface SyncOutcome {
+  /** False when no reconcile happened — no extension APIs, a sync already in
+      flight, or Notion refused. Callers must not report a result in that case. */
+  ran: boolean
+  nodes: TreeNode[]
+}
+
+async function syncSaves(): Promise<SyncOutcome> {
   const w = window as Window & { browser?: typeof browser }
-  if (!w.browser?.runtime || syncing) return SOURCES.notion.root
-  const r = (await w.browser.runtime.sendMessage({ type: 'notion.list' })) as
-    | { ok: boolean; message: string; items: SavedItem[]; hotIsLocal: boolean }
-    | undefined
-  if (!r?.ok) {
-    if (r?.message) toast(r.message)
-    return SOURCES.notion.root // keep what we have; Notion still holds the truth
+  const unchanged: SyncOutcome = { ran: false, nodes: SOURCES.notion.root }
+  if (!w.browser?.runtime || syncing) return unchanged
+  syncing = true
+  try {
+    const r = (await w.browser.runtime.sendMessage({ type: 'notion.list' })) as
+      | { ok: boolean; message: string; items: SavedItem[]; hotIsLocal: boolean }
+      | undefined
+    if (!r?.ok) {
+      if (r?.message) toast(r.message)
+      return unchanged // keep what we have; Notion still holds the truth
+    }
+    SOURCES.notion.isLive = true
+    mirror = await updateMirror((m) => reconcile(m, r.items, { hotIsLocal: r.hotIsLocal, at: Date.now() }))
+    return { ran: true, nodes: mirror.items.map(saveNode) }
+  } finally {
+    syncing = false
   }
-  SOURCES.notion.isLive = true
-  mirror = await updateMirror((m) => reconcile(m, r.items, { hotIsLocal: r.hotIsLocal, at: Date.now() }))
-  return mirror.items.map(saveNode)
 }
 
 /** The user-facing refresh: quick, reports what changed, and cannot overlap
     itself. Local is served from the mirror; this is the only path that talks
     to Notion for reads. */
 async function refreshFromNotion(): Promise<void> {
-  if (syncing) return
-  syncing = true
   const before = new Set(mirror.items.map((i) => i.pageId))
-  try {
-    const nodes = await syncSaves()
-    SOURCES.notion.root = nodes
-    reindexAll()
-  } finally {
-    syncing = false
-  }
+  const { ran, nodes } = await syncSaves()
+  SOURCES.notion.root = nodes
+  reindexAll()
   rerender()
-  if (!SOURCES.notion.isLive) return // syncSaves already explained the failure
+  if (!ran) return // nothing reconciled; syncSaves already explained why
   const added = mirror.items.filter((i) => !before.has(i.pageId)).length
   const removed = [...before].filter((id) => !mirror.items.some((i) => i.pageId === id)).length
   const total = mirror.items.length
@@ -252,7 +259,7 @@ async function refreshSource(k: SourceKey): Promise<void> {
     if (k === 'tabs') s.root = await loadTabs()
     else if (k === 'bookmarks') s.root = await loadBookmarks()
     else if (k === 'history') s.root = await loadHistory()
-    else if (k === 'notion') s.root = await syncSaves()
+    else if (k === 'notion') s.root = (await syncSaves()).nodes
   } catch (err) {
     console.error(`[library-tab] failed to load ${k}:`, err)
     toast(`Couldn't load ${s.label} — see console`)

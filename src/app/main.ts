@@ -18,16 +18,15 @@ import {
   watchTabs,
 } from './live-sources'
 import { PREVIEW_BOOKMARKS, PREVIEW_HISTORY, PREVIEW_TABS } from './preview-data'
+import { importSavedTabs, type SavedTab } from './saved-tabs'
 import {
-  importSavedTabs,
-  loadSavedTabs,
-  removeSavedTab,
-  renameSavedTab,
-  saveTab,
-  saveTabs,
-  watchSavedTabs,
-  type SavedTab,
-} from './saved-tabs'
+  EMPTY_MIRROR,
+  applyArchive,
+  reconcile,
+  type SavedItem,
+  type SavesMirror,
+} from '../shared/saves-model'
+import { loadMirror, updateMirror, watchMirror } from '../shared/saves-store'
 import { loadLibrary, saveLibrary, watchLibrary } from './library-store'
 import { fetchMeta, iconFor, queueIcons, requestRichIcons, richIconsEnabled } from './meta'
 
@@ -163,43 +162,51 @@ interface State {
 const state: State = { src: 'library', folder: null, mode: 'list', sel: new Set(), expanded: new Set(), q: '' }
 
 /* ---------- live loading ---------- */
-interface RecentSave {
-  pageId: string
-  title: string
-  url?: string
-  notionUrl: string
-  createdAt: string
-  type?: string
+
+/** The local mirror of the Notion database. Notion is the source of truth;
+    this is what paints the page before any network request finishes. */
+let mirror: SavesMirror = EMPTY_MIRROR
+
+function saveNode(it: SavedItem): LinkNode {
+  return L(it.title, it.url, {
+    notionId: it.pageId,
+    notionUrl: it.notionUrl,
+    saveType: it.saveType,
+    hot: it.hot,
+    favicon: it.favicon,
+    when: it.createdAt ? new Date(it.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '',
+  })
 }
-function notionItemsToNodes(items: RecentSave[]): TreeNode[] {
-  return items.map((it) =>
-    L(it.title, it.url ?? it.notionUrl, {
-      notionId: it.pageId,
-      notionUrl: it.notionUrl,
-      saveType: it.type,
-      when: it.createdAt ? new Date(it.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : '',
-    }),
-  )
+
+/** Points every surface at a new mirror. Never writes — callers that changed
+    the mirror have already persisted it. */
+function paintMirror(next: SavesMirror): void {
+  mirror = next
+  SOURCES.notion.root = next.items.map(saveNode)
+  reindexAll()
 }
-/** Instant paint from the last-known Notion list while the live query runs. */
-async function preloadNotionCache(): Promise<void> {
+
+/** Queries Notion and folds the result into the mirror.
+
+    A failed query keeps the existing mirror untouched: `listAllSaves` reports
+    an empty list on failure, and `reconcile` reads an empty listing as "the
+    user archived everything", so reconciling a failure would wipe the page. */
+async function syncSaves(): Promise<TreeNode[]> {
   const w = window as Window & { browser?: typeof browser }
-  if (!w.browser?.storage?.local) return
-  const box = await w.browser.storage.local.get('notionCache')
-  const items = box['notionCache'] as RecentSave[] | undefined
-  if (Array.isArray(items) && items.length && !SOURCES.notion.root.length) {
-    SOURCES.notion.root = notionItemsToNodes(items)
-    reindexAll()
+  if (!w.browser?.runtime) return SOURCES.notion.root
+  const r = (await w.browser.runtime.sendMessage({ type: 'notion.list' })) as
+    | { ok: boolean; message: string; items: SavedItem[]; hotIsLocal: boolean }
+    | undefined
+  if (!r?.ok) {
+    if (r?.message) toast(r.message)
+    return SOURCES.notion.root // keep what we have; Notion still holds the truth
   }
+  SOURCES.notion.isLive = true
+  mirror = await updateMirror((m) => reconcile(m, r.items, { hotIsLocal: r.hotIsLocal, at: Date.now() }))
+  return mirror.items.map(saveNode)
 }
-async function removeFromNotionCache(pageId: string): Promise<void> {
-  const w = window as Window & { browser?: typeof browser }
-  if (!w.browser?.storage?.local) return
-  const box = await w.browser.storage.local.get('notionCache')
-  const items = box['notionCache'] as RecentSave[] | undefined
-  if (Array.isArray(items)) await w.browser.storage.local.set({ notionCache: items.filter((i) => i.pageId !== pageId) })
-}
-/** Archive a Notion save and repaint every surface that shows it. */
+
+/** Archives a save in Notion and drops it from the mirror. */
 function archiveNotionNode(n: LinkNode): void {
   deleteNode(n)
   renderHome()
@@ -207,17 +214,7 @@ function archiveNotionNode(n: LinkNode): void {
   else renderHomePanels()
   toast(`Archived “${n.title}” in Notion`)
 }
-async function loadNotionRecent(): Promise<TreeNode[]> {
-  const w = window as Window & { browser?: typeof browser }
-  if (!w.browser?.runtime) return []
-  const r = (await w.browser.runtime.sendMessage({ type: 'notion.recent' })) as
-    | { ok: boolean; items: RecentSave[] }
-    | undefined
-  if (!r?.ok) return SOURCES.notion.root // keep cached state on failure
-  SOURCES.notion.isLive = true
-  void w.browser.storage.local.set({ notionCache: r.items.slice(0, 50) })
-  return notionItemsToNodes(r.items)
-}
+
 async function refreshSource(k: SourceKey): Promise<void> {
   const s = SOURCES[k]
   if (!s.isLive && k !== 'notion') return
@@ -225,7 +222,7 @@ async function refreshSource(k: SourceKey): Promise<void> {
     if (k === 'tabs') s.root = await loadTabs()
     else if (k === 'bookmarks') s.root = await loadBookmarks()
     else if (k === 'history') s.root = await loadHistory()
-    else if (k === 'notion') s.root = await loadNotionRecent()
+    else if (k === 'notion') s.root = await syncSaves()
   } catch (err) {
     console.error(`[library-tab] failed to load ${k}:`, err)
     toast(`Couldn't load ${s.label} — see console`)
@@ -476,84 +473,31 @@ function renderHome(): void {
     b.addEventListener('contextmenu', (e) => ctxMenu(e, n, 'grid'))
     g.appendChild(b)
   }
-  /* saved pages appear as tiles too (from Notion when connected; local fallback otherwise) */
+  /* Quick saves from Notion appear as tiles */
   const pinnedUrls = new Set(GRID.filter((x): x is LinkNode => x.type === 'link').map((x) => x.url))
-  const localByUrl = new Map(savedTabs.map((s) => [s.url, s]))
-  const useNotion = notionConfigured || SOURCES.notion.isLive || SOURCES.notion.root.length > 0
-  const savedNodes: LinkNode[] = useNotion
-    ? SOURCES.notion.root
-        .filter((x): x is LinkNode => x.type === 'link' && x.saveType === 'Quick' && !pinnedUrls.has(x.url))
-        .slice(0, 24)
-    : savedTabs.filter((s) => !pinnedUrls.has(s.url)).map((s) => L(s.title, s.url, { favicon: s.favicon }))
+  const savedNodes: LinkNode[] = SOURCES.notion.root
+    .filter((x): x is LinkNode => x.type === 'link' && x.saveType === 'Quick' && !pinnedUrls.has(x.url))
+    .slice(0, 24)
   for (const n of savedNodes) {
     const b = document.createElement('div')
     b.className = 'tile'
     b.tabIndex = 0
     b.setAttribute('role', 'button')
-    b.innerHTML = tileIcon(n) + `<span class="lb">${esc(n.title)}</span><span class="savb" title="Saved${n.notionId ? ' in Notion' : ''}">📔</span>`
+    b.innerHTML = tileIcon(n) + `<span class="lb">${esc(n.title)}</span><span class="savb" title="Saved in Notion">📔</span>`
     const tdel = document.createElement('button')
     tdel.className = 'tdel hact'
-    tdel.title = n.notionId ? 'Archive in Notion' : 'Remove from saved tabs'
+    tdel.title = 'Archive in Notion'
     tdel.textContent = '✕'
     tdel.addEventListener('click', (e) => {
       e.stopPropagation()
-      if (n.notionId) {
-        archiveNotionNode(n)
-        return
-      }
-      const s = localByUrl.get(n.url)
-      if (s) {
-        void removeSavedTab(s.id).then(refreshSavedTabs)
-        toast(`Removed “${s.title}”`)
-      }
+      archiveNotionNode(n)
     })
     b.appendChild(tdel)
     b.addEventListener('click', (e) => {
       if (clickedControl(e)) return
       openNode(n, 'here')
     })
-    b.addEventListener('contextmenu', (e) => {
-      if (n.notionId) {
-        ctxMenu(e, n, 'notion')
-        return
-      }
-      const s = localByUrl.get(n.url)
-      if (!s) return
-      showCtxMenu(e, [
-        { lbl: 'Open', on: () => openNode(n, 'here') },
-        { lbl: 'Open in new tab', on: () => openNode(n, 'newtab') },
-        { hr: true },
-        {
-          lbl: 'Rename',
-          on: () => {
-            const lbl = b.querySelector<HTMLElement>('.lb')
-            if (lbl)
-              inlineRename(lbl, s.title, (t) => {
-                void renameSavedTab(s.id, t).then(refreshSavedTabs)
-                toast(`Renamed to “${t}”`)
-              })
-          },
-        },
-        {
-          lbl: 'Pin permanently',
-          on: () => {
-            GRID.push(L(s.title, s.url, { favicon: s.favicon }))
-            reindexAll()
-            persistLibrary()
-            renderHome()
-            toast(`Pinned “${s.title}”`)
-          },
-        },
-        {
-          lbl: 'Remove from saved tabs',
-          danger: true,
-          on: () => {
-            void removeSavedTab(s.id).then(refreshSavedTabs)
-            toast(`Removed “${s.title}”`)
-          },
-        },
-      ])
-    })
+    b.addEventListener('contextmenu', (e) => ctxMenu(e, n, 'notion'))
     g.appendChild(b)
   }
   const savedTiles = savedNodes
@@ -633,11 +577,11 @@ function clickedControl(e: MouseEvent): boolean {
 }
 
 /* ---------- HOME side panels: saved tabs (left) + bookmarks (right) ---------- */
-let savedTabs: SavedTab[] = []
 let notionConfigured = false
-async function refreshSavedTabs(): Promise<void> {
-  savedTabs = await loadSavedTabs()
+/** Repaints from whatever the mirror already holds — no network. */
+async function refreshSaves(): Promise<void> {
   notionConfigured = (await getNotionCfg()) !== null
+  paintMirror(await loadMirror())
   if (isEditing()) return
   renderHome()
   if (!location.hash.startsWith('#/explorer')) renderHomePanels()
@@ -660,47 +604,18 @@ function hrow(n: TreeNode, opts: { indent?: boolean; head?: boolean; chev?: bool
   b.innerHTML = `${chev}${icon}<span class="ttl">${esc(n.title)}</span>`
   return b
 }
-function savedRow(s: SavedTab): HTMLDivElement {
-  const n = L(s.title, s.url, { favicon: s.favicon })
-  const b = hrow(n)
-  b.addEventListener('click', (e) => {
-    if (clickedControl(e)) return
-    void openUrl(s.url, false)
-  })
-  b.appendChild(
-    actBtn('✎', 'Rename', () => {
-      const ttl = b.querySelector<HTMLElement>('.ttl')
-      if (ttl)
-        inlineRename(ttl, s.title, (t) => {
-          void renameSavedTab(s.id, t).then(refreshSavedTabs)
-        })
-    }),
-  )
-  b.appendChild(
-    actBtn('✕', 'Remove from saved tabs', () => {
-      void removeSavedTab(s.id).then(refreshSavedTabs)
-      toast(`Removed “${s.title}” from saved tabs`)
-    }),
-  )
-  return b
-}
-/** Quick save: goes to Notion when connected (title/link/tags, no summary),
-    otherwise to the local saved-tabs list. */
+/** Quick save: a Notion page with title, link and tags — no summary. */
 function saveTabAndShow(t: { title: string; url: string; favicon?: string }): void {
   void (async () => {
-    const configured = (await getNotionCfg()) !== null
-    if (configured && extApi?.runtime) {
-      toast('Saving to Notion…')
-      const r = (await extApi.runtime.sendMessage({ type: 'notion.saveQuick', title: t.title, url: t.url })) as
-        | { ok: boolean; message: string }
-        | undefined
-      toast(r?.message ?? 'No response — try again')
+    if ((await getNotionCfg()) === null || !extApi?.runtime) {
+      toast('Connect Notion first (Wallpaper → 📔) — saves live in your database')
       return
     }
-    const added = await saveTab(t)
-    void refreshSavedTabs()
-    if (!location.hash.startsWith('#/explorer')) renderHomePanels()
-    toast(added ? `Saved “${t.title}”` : 'Already in your saved tabs')
+    toast('Saving to Notion…')
+    const r = (await extApi.runtime.sendMessage({ type: 'notion.saveQuick', title: t.title, url: t.url })) as
+      | { ok: boolean; message: string }
+      | undefined
+    toast(r?.message ?? 'No response — try again')
   })()
 }
 
@@ -734,7 +649,10 @@ function renderHomePanels(): void {
   const notionLinks = SOURCES.notion.root.filter(
     (n): n is LinkNode => n.type === 'link' && n.saveType !== 'Quick',
   )
-  if (notionConfigured || SOURCES.notion.isLive || notionLinks.length) {
+  if (!notionConfigured && !SOURCES.notion.isLive && !notionLinks.length) {
+    notionBox.innerHTML =
+      '<span class="hempty">Connect Notion (Wallpaper → 📔) to save pages with summaries — your saves live in your own database.</span>'
+  } else {
     if (!notionLinks.length)
       notionBox.innerHTML = SOURCES.notion.isLive
         ? '<span class="hempty">No summarized saves yet — open an article and use the toolbar button: 📔 Summarize &amp; save.</span>'
@@ -754,11 +672,6 @@ function renderHomePanels(): void {
       b.appendChild(actBtn('✕', 'Archive in Notion', () => archiveNotionNode(n)))
       notionBox.appendChild(b)
     }
-  } else {
-    if (!savedTabs.length)
-      notionBox.innerHTML =
-        '<span class="hempty">Connect Notion (Wallpaper → 📔) to save pages with summaries — or just hit 🔖 on any tab to save locally.</span>'
-    for (const s of savedTabs) notionBox.appendChild(savedRow(s))
   }
   /* right column, lower box: open tabs */
   const tabsBox = el<HTMLDivElement>('#homeTabs')
@@ -834,22 +747,19 @@ el<HTMLButtonElement>('#saveAllBtn').addEventListener('click', () => {
       toast('No open tabs to save')
       return
     }
-    if ((await getNotionCfg()) !== null && extApi?.runtime) {
-      toast(`Saving ${tabs.length} tab${tabs.length > 1 ? 's' : ''} to Notion…`)
-      let added = 0
-      for (const t of tabs) {
-        const r = (await extApi.runtime.sendMessage({ type: 'notion.saveQuick', title: t.title, url: t.url })) as
-          | { ok: boolean; message: string }
-          | undefined
-        if (r?.ok && !r.message.startsWith('Already')) added++
-      }
-      toast(added ? `Saved ${added} tab${added > 1 ? 's' : ''} to Notion 📔` : 'All open tabs were already saved')
+    if ((await getNotionCfg()) === null || !extApi?.runtime) {
+      toast('Connect Notion first (Wallpaper → 📔) — saves live in your database')
       return
     }
-    const added = await saveTabs(tabs.map((t) => ({ title: t.title, url: t.url, favicon: t.favicon })))
-    void refreshSavedTabs()
-    renderHomePanels()
-    toast(added ? `Saved ${added} tab${added > 1 ? 's' : ''}` : 'All open tabs were already saved')
+    toast(`Saving ${tabs.length} tab${tabs.length > 1 ? 's' : ''} to Notion…`)
+    let added = 0
+    for (const t of tabs) {
+      const r = (await extApi.runtime.sendMessage({ type: 'notion.saveQuick', title: t.title, url: t.url })) as
+        | { ok: boolean; message: string }
+        | undefined
+      if (r?.ok && !r.message.startsWith('Already')) added++
+    }
+    toast(added ? `Saved ${added} tab${added > 1 ? 's' : ''} to Notion 📔` : 'All open tabs were already saved')
   })()
 })
 
@@ -1122,7 +1032,7 @@ el<HTMLButtonElement>('#exportBtn').addEventListener('click', () => {
   const backup = {
     version: 1,
     exportedAt: new Date().toISOString(),
-    savedTabs,
+    saves: mirror.items,
     library: { root: SOURCES.library.root, grid: GRID },
   }
   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
@@ -1185,7 +1095,6 @@ importFile.addEventListener('change', () => {
     }
     reindexAll()
     persistLibrary()
-    await refreshSavedTabs()
     renderHome()
     if (location.hash.startsWith('#/explorer')) renderExplorer()
     toast(`Restored ${addedSaved} saved tab${addedSaved === 1 ? '' : 's'} and ${addedLib} library item${addedLib === 1 ? '' : 's'}`)
@@ -1626,8 +1535,9 @@ function deleteNode(n: TreeNode): void {
   } else if (owner === 'history' && n.type === 'link' && SOURCES.history.isLive) {
     void deleteHistoryUrl(n.url).catch(() => toast('Couldn\'t remove that URL'))
   } else if (owner === 'notion' && n.notionId) {
-    void extApi?.runtime.sendMessage({ type: 'notion.archive', pageId: n.notionId })
-    void removeFromNotionCache(n.notionId)
+    const pageId = n.notionId
+    void extApi?.runtime.sendMessage({ type: 'notion.archive', pageId })
+    void updateMirror((m) => applyArchive(m, pageId)).then(paintMirror)
   }
   detach(n) // optimistic; live events re-sync the authoritative tree
   if (owner === 'library' || owner === 'grid') persistLibrary()
@@ -1874,22 +1784,17 @@ document.addEventListener('keydown', (e) => {
 renderHome()
 route()
 wireLiveEvents()
-let notionStamp = 0
-async function maybeRefreshNotion(): Promise<void> {
-  if (!extApi?.storage?.local) return
-  const box = await extApi.storage.local.get('notionLastSave')
-  const stamp = (box['notionLastSave'] as number | undefined) ?? 0
-  if (stamp > notionStamp) {
-    notionStamp = stamp
-    await refreshSource('notion')
-    rerender()
-  }
-}
-watchSavedTabs(() => {
-  void refreshSavedTabs()
-  void maybeRefreshNotion()
+/* Any context writing the mirror — this page, another open new tab, or the
+   background after a save — wakes every surface through storage.onChanged. */
+const repaintSaves = debounce(() => {
+  if (isEditing()) return
+  rerender()
+}, 120)
+watchMirror((next) => {
+  paintMirror(next)
+  repaintSaves()
 })
-void preloadNotionCache().then(() => refreshSavedTabs())
+void refreshSaves()
 watchLibrary(() => {
   if (!suppressLibraryReload) void reloadLibraryFromStore()
 })

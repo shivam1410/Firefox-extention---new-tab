@@ -64,7 +64,7 @@ browser.runtime.onMessage.addListener((msg) => {
   if (m?.type === 'notion.listDbs' && typeof m.token === 'string') return listDatabases(m.token)
   if (m?.type === 'notion.saveTab' && typeof m.tabId === 'number') return saveTabToNotion(m.tabId)
   if (m?.type === 'notion.recent') return listRecent()
-  if (m?.type === 'notion.archive' && typeof m.pageId === 'string') return archivePage(m.pageId).then((ok) => ({ ok }))
+  if (m?.type === 'notion.archive' && typeof m.pageId === 'string') return archivePage(m.pageId)
   if (m?.type === 'llm.setCfg')
     return setOpenRouterConfig(typeof m.key === 'string' && m.key ? { key: m.key, model: m.model ?? '' } : null).then(() => ({ ok: true }))
   return undefined

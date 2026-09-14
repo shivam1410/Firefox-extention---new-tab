@@ -4,7 +4,7 @@
    any database works: we find the title property, plus url/date/multi-select
    properties when present, instead of demanding fixed names. */
 
-import { collectSaves, mapProperties, type NotionSchema } from '../shared/notion-map'
+import { collectSaves, mapProperties, pageToSavedItem, type NotionSchema } from '../shared/notion-map'
 import type { SavedItem } from '../shared/saves-model'
 
 export interface NotionConfig {
@@ -266,8 +266,17 @@ export async function listAllSaves(): Promise<SavesListing> {
   }
 }
 
+export interface SaveResult {
+  ok: boolean
+  message: string
+  pageUrl?: string
+  /** The saved page, ready to fold into the local mirror so every open
+      surface repaints. Absent when the save failed. */
+  item?: SavedItem
+}
+
 /** Creates (or detects an existing) Notion page for this URL. */
-export async function saveToNotion(input: SaveInput): Promise<{ ok: boolean; message: string; pageUrl?: string }> {
+export async function saveToNotion(input: SaveInput): Promise<SaveResult> {
   const cfg = await getStoredCfg()
   if (!cfg) return { ok: false, message: 'Notion is not set up yet — open Notion settings on the new tab.' }
   try {
@@ -283,7 +292,12 @@ export async function saveToNotion(input: SaveInput): Promise<{ ok: boolean; mes
       const hits = (q.json['results'] as Array<Record<string, unknown>> | undefined) ?? []
       if (q.ok && hits.length) {
         const first = hits[0]
-        return { ok: true, message: 'Already in Notion — opened existing page', pageUrl: first ? String(first['url'] ?? '') : undefined }
+        return {
+          ok: true,
+          message: 'Already in Notion — opened existing page',
+          pageUrl: first ? String(first['url'] ?? '') : undefined,
+          item: pageToSavedItem(first, schema) ?? undefined,
+        }
       }
     }
 
@@ -324,7 +338,12 @@ export async function saveToNotion(input: SaveInput): Promise<{ ok: boolean; mes
       }
       return { ok: false, message: `Notion refused the save: ${err.message ?? `HTTP ${r.status}`}` }
     }
-    return { ok: true, message: 'Saved to Notion 📔', pageUrl: String(r.json['url'] ?? '') }
+    return {
+      ok: true,
+      message: 'Saved to Notion 📔',
+      pageUrl: String(r.json['url'] ?? ''),
+      item: pageToSavedItem(r.json, schema) ?? undefined,
+    }
   } catch {
     return { ok: false, message: 'Could not reach Notion — check your connection.' }
   }

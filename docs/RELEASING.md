@@ -71,7 +71,10 @@ gh auth switch --user ShivamHL
    > code, no external services, no data collection.
 6. Submit. Self-distributed versions usually auto-sign in minutes; versions that add
    **new permissions** or ship source can sit in **human review for hours–days** —
-   that's normal, you'll get an email.
+   that's normal, you'll get an email. *Removing* a permission does not trigger
+   that extended review, and is worth calling out in the release notes since
+   existing users see the reduced access. The Notion-source-of-truth release
+   drops `identity`, which only Firebase cloud sync had needed.
 
 ### 5. Install the signed build
 

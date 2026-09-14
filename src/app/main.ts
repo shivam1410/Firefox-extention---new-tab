@@ -23,13 +23,15 @@ import {
   applyArchive,
   applyHot,
   applyRename,
+  pendingMigration,
   reconcile,
   restoreRow,
   syncSummary,
+  type LegacySave,
   type SavedItem,
   type SavesMirror,
 } from '../shared/saves-model'
-import { loadMirror, updateMirror, watchMirror } from '../shared/saves-store'
+import { clearLegacySaves, loadLegacySaves, loadMirror, updateMirror, watchMirror } from '../shared/saves-store'
 import { loadLibrary, saveLibrary, watchLibrary } from './library-store'
 import { fetchMeta, iconFor, queueIcons, requestRichIcons, richIconsEnabled } from './meta'
 
@@ -282,6 +284,69 @@ function commitRename(n: TreeNode, title: string, after: () => void): void {
   if (isLibraryNode(n)) persistLibrary()
   toast(`Renamed to “${title}”`)
   after()
+}
+
+/* ---------- one-time migration of the retired local store ---------- */
+
+let legacyPending: LegacySave[] = []
+let migrating = false
+
+/** Works out what is still stranded in the old `storage.sync` store.
+
+    A failed read yields an empty list but is NOT treated as "nothing left":
+    `loadLegacySaves` reports `ok: false` in that case, and clearing on the back
+    of it would delete the only copy of that data. */
+async function refreshLegacyBanner(): Promise<void> {
+  const { ok, rows } = await loadLegacySaves()
+  legacyPending = ok ? pendingMigration(mirror, rows) : []
+}
+
+/** Moves every stranded save into Notion, then — only if every one landed —
+    clears the retired keys. A partial run leaves the remainder exactly where
+    it was, so nothing is lost and the banner offers a retry. */
+async function migrateLegacySaves(btn: HTMLButtonElement): Promise<void> {
+  if (migrating || !legacyPending.length) return
+  migrating = true
+  btn.disabled = true
+  btn.textContent = 'Moving…'
+  const rows = legacyPending.map((r) => ({ title: r.title, url: r.url }))
+  toast(`Moving ${rows.length} saved tab${rows.length === 1 ? '' : 's'} into Notion…`)
+  try {
+    const { added, failed } = await pushSavesToNotion(rows)
+    await refreshFromNotion()
+    if (failed) {
+      await refreshLegacyBanner()
+      toast(`Moved ${added}; ${failed} failed and ${failed === 1 ? 'is' : 'are'} still safe locally — try again`)
+      return
+    }
+    await clearLegacySaves()
+    legacyPending = []
+    toast(added ? `Moved ${added} saved tab${added === 1 ? '' : 's'} into Notion 📔` : 'Those saves were already in Notion')
+  } finally {
+    migrating = false
+    renderHomePanels()
+  }
+}
+
+/** The banner shown while anything is still stranded locally. */
+function legacyBanner(): HTMLDivElement | null {
+  if (!legacyPending.length) return null
+  const n = legacyPending.length
+  const bar = document.createElement('div')
+  bar.className = 'migbar'
+  const label = document.createElement('span')
+  label.textContent = notionConfigured
+    ? `${n} saved tab${n === 1 ? '' : 's'} from the old local list ${n === 1 ? 'is' : 'are'} not in Notion yet`
+    : `${n} saved tab${n === 1 ? '' : 's'} waiting — connect Notion to move ${n === 1 ? 'it' : 'them'} in`
+  bar.appendChild(label)
+  if (notionConfigured) {
+    const btn = document.createElement('button')
+    btn.className = 'hsave'
+    btn.textContent = 'Move to Notion'
+    btn.addEventListener('click', () => void migrateLegacySaves(btn))
+    bar.appendChild(btn)
+  }
+  return bar
 }
 
 /** The user-facing refresh: quick, reports what changed, and cannot overlap
@@ -755,10 +820,11 @@ function openTabRow(t: LinkNode, indent: boolean): HTMLDivElement {
 }
 
 function renderHomePanels(): void {
-  /* left: saved pages — Notion is the home for saves; local list is the
-     fallback shown only until Notion is connected */
+  /* left: summarized saves from Notion, plus the one-time migration banner
+     while anything is still stranded in the retired local store */
   const notionBox = el<HTMLDivElement>('#homeNotion')
   notionBox.innerHTML = ''
+  const banner = legacyBanner()
   const notionLinks = SOURCES.notion.root.filter(
     (n): n is LinkNode => n.type === 'link' && n.saveType !== 'Quick',
   )
@@ -786,6 +852,7 @@ function renderHomePanels(): void {
       notionBox.appendChild(b)
     }
   }
+  if (banner) notionBox.prepend(banner)
   /* right column, lower box: open tabs */
   const tabsBox = el<HTMLDivElement>('#homeTabs')
   tabsBox.innerHTML = ''
@@ -1950,6 +2017,10 @@ watchMirror((next) => {
   repaintSaves()
 })
 void refreshSaves()
+  .then(refreshLegacyBanner)
+  .then(() => {
+    if (!location.hash.startsWith('#/explorer')) renderHomePanels()
+  })
 watchLibrary(() => {
   if (!suppressLibraryReload) void reloadLibraryFromStore()
 })

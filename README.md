@@ -4,8 +4,14 @@ Firefox extension: your new tab as a personal library — a wallpapered start pa
 files-and-folders manager for tabs, bookmarks and history, one-click **save to Notion**
 (quick links or full AI summaries with images), rich site icons, hot apps, and backups.
 
+**Your Notion database is the source of truth for saves.** The extension keeps a
+local copy so the new tab paints instantly, refreshes reconcile the two, and
+removing a save *archives* the Notion page rather than deleting it. See
+[ADR 0001](docs/adr/0001-notion-is-the-system-of-record.md) for why.
+
 - **[docs/SETUP.md](docs/SETUP.md)** — connecting Notion, AI keys (Anthropic/OpenRouter),
-  rich icons, Firebase sync, backups, and how the save model works
+  rich icons, backups, and how the save model works
+- **[CHANGELOG.md](CHANGELOG.md)** — what changed in each released version
 - **[docs/RELEASING.md](docs/RELEASING.md)** — the full release runbook (package → AMO
   signing → GitHub release), golden rules, and troubleshooting
 
@@ -32,6 +38,8 @@ npm install
 npm run build        # one-shot build into dist/
 npm run dev          # rebuild on change
 npm run typecheck    # tsc --noEmit
+npm test             # vitest — unit tests for src/shared
+npm run test:coverage # same, with the 80% threshold enforced
 npm run lint:ext     # web-ext lint against dist/
 ```
 
@@ -57,5 +65,8 @@ requires signing through addons.mozilla.org — worth doing once the MVP is comp
 
 - `public/manifest.json` — MV3, event-page background, `chrome_url_overrides.newtab`
 - `app.html` + `src/app/` — the single app page: `#/home` (new tab) and `#/explorer` (manager)
-- `src/background/` — event page (toolbar action; later: metadata pipeline, hot-app warm-up)
-- `src/core/` — (from P1) browser-API-free logic: IndexedDB store, tree ops, source adapters
+- `src/background/` — event page: Notion client, capture, metadata pipeline, hot-app warm-up
+- `src/shared/` — browser-API-free logic shared by the app, popup and background:
+  the saves model and its reconcile rules, the local mirror, Notion mapping. This is
+  the unit-tested surface (`npm test`)
+- `docs/adr/` — architecture decision records

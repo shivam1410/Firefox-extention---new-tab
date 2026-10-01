@@ -4,6 +4,9 @@
    any database works: we find the title property, plus url/date/multi-select
    properties when present, instead of demanding fixed names. */
 
+import { collectSaves, mapProperties, pageToSavedItem, type NotionSchema } from '../shared/notion-map'
+import type { SavedItem } from '../shared/saves-model'
+
 export interface NotionConfig {
   token: string
   databaseId: string
@@ -30,7 +33,11 @@ interface NotionError {
   code?: string
 }
 
-async function notionFetch(token: string, path: string, method: string, body?: unknown): Promise<{ ok: boolean; status: number; json: Record<string, unknown> }> {
+/* Deliberately not `string`: removal is archival (ADR 0001, invariant I1), so
+   the client must offer no way to spell a destructive verb. */
+type NotionMethod = 'GET' | 'POST' | 'PATCH'
+
+async function notionFetch(token: string, path: string, method: NotionMethod, body?: unknown): Promise<{ ok: boolean; status: number; json: Record<string, unknown> }> {
   const res = await fetch(`${NOTION}${path}`, {
     method,
     headers: {
@@ -77,35 +84,11 @@ export async function listDatabases(token: string): Promise<{ ok: boolean; messa
   }
 }
 
-interface SchemaMap {
-  titleProp: string
-  urlProp?: string
-  dateProp?: string
-  tagsProp?: string
-  domainProp?: string
-  typeProp?: string
-}
-
-async function mapSchema(token: string, databaseId: string): Promise<SchemaMap | string> {
+async function mapSchema(token: string, databaseId: string): Promise<NotionSchema | string> {
   const r = await notionFetch(token, `/databases/${databaseId}`, 'GET')
   if (!r.ok) return `Could not read the database (${(r.json as NotionError).message ?? r.status})`
   const props = (r.json['properties'] as Record<string, { type?: string }> | undefined) ?? {}
-  let titleProp = ''
-  let urlProp: string | undefined
-  let dateProp: string | undefined
-  let tagsProp: string | undefined
-  let domainProp: string | undefined
-  let typeProp: string | undefined
-  for (const [name, def] of Object.entries(props)) {
-    if (def.type === 'title') titleProp = name
-    else if (def.type === 'url' && !urlProp) urlProp = name
-    else if (def.type === 'date' && !dateProp) dateProp = name
-    else if (def.type === 'multi_select' && !tagsProp) tagsProp = name
-    else if (def.type === 'select' && !typeProp && /^(type|kind)$/i.test(name)) typeProp = name
-    else if (def.type === 'select' && !domainProp && /domain|site|source/i.test(name)) domainProp = name
-  }
-  if (!titleProp) return 'The database has no title property (every Notion database should).'
-  return { titleProp, urlProp, dateProp, tagsProp, domainProp, typeProp }
+  return mapProperties(props)
 }
 
 export interface SaveInput {
@@ -193,20 +176,107 @@ export async function listRecent(): Promise<{ ok: boolean; message: string; item
   }
 }
 
-/** Archives (soft-deletes) a saved page in Notion. */
-export async function archivePage(pageId: string): Promise<boolean> {
+export interface WriteResult {
+  ok: boolean
+  message: string
+}
+
+/** Removing a save archives its page — it is never deleted, so a mistaken
+    removal stays recoverable from Notion's own trash. See ADR 0001. */
+export async function archivePage(pageId: string): Promise<WriteResult> {
   const cfg = await getStoredCfg()
-  if (!cfg) return false
+  if (!cfg) return { ok: false, message: 'Notion is not connected' }
   try {
     const r = await notionFetch(cfg.token, `/pages/${pageId}`, 'PATCH', { archived: true })
-    return r.ok
+    if (!r.ok) return { ok: false, message: `Notion refused the archive: ${(r.json as NotionError).message ?? `HTTP ${r.status}`}` }
+    return { ok: true, message: 'Archived in Notion' }
   } catch {
-    return false
+    return { ok: false, message: 'Could not reach Notion — check your connection.' }
   }
 }
 
+/** Renames a save by writing its Notion title property. */
+export async function renamePage(pageId: string, title: string): Promise<WriteResult> {
+  const cfg = await getStoredCfg()
+  if (!cfg) return { ok: false, message: 'Notion is not connected' }
+  try {
+    const schema = await mapSchema(cfg.token, cfg.databaseId)
+    if (typeof schema === 'string') return { ok: false, message: schema }
+    const r = await notionFetch(cfg.token, `/pages/${pageId}`, 'PATCH', {
+      properties: { [schema.titleProp]: { title: [{ text: { content: trim(title || 'Untitled', 200) } }] } },
+    })
+    if (!r.ok) return { ok: false, message: `Notion refused the rename: ${(r.json as NotionError).message ?? `HTTP ${r.status}`}` }
+    return { ok: true, message: 'Renamed in Notion' }
+  } catch {
+    return { ok: false, message: 'Could not reach Notion — check your connection.' }
+  }
+}
+
+/** Writes the 🔥 hot flag to the database's checkbox property.
+    Databases without a checkbox still succeed — the flag simply stays on this
+    device, and the caller says so. */
+export async function setPageHot(pageId: string, hot: boolean): Promise<WriteResult> {
+  const cfg = await getStoredCfg()
+  if (!cfg) return { ok: false, message: 'Notion is not connected' }
+  try {
+    const schema = await mapSchema(cfg.token, cfg.databaseId)
+    if (typeof schema === 'string') return { ok: false, message: schema }
+    if (!schema.hotProp) return { ok: true, message: 'Hot apps are remembered on this device only' }
+    const r = await notionFetch(cfg.token, `/pages/${pageId}`, 'PATCH', {
+      properties: { [schema.hotProp]: { checkbox: hot } },
+    })
+    if (!r.ok) return { ok: false, message: `Notion refused the change: ${(r.json as NotionError).message ?? `HTTP ${r.status}`}` }
+    return { ok: true, message: hot ? 'Marked hot in Notion' : 'Unmarked in Notion' }
+  } catch {
+    return { ok: false, message: 'Could not reach Notion — check your connection.' }
+  }
+}
+
+export interface SavesListing {
+  ok: boolean
+  message: string
+  items: SavedItem[]
+  hotIsLocal: boolean
+}
+
+/** Every non-archived save in the database, newest first.
+
+    Paginates, unlike `listRecent`, which silently stopped at the first 50.
+    On any incomplete outcome this reports `ok: false` with an EMPTY list —
+    callers must not reconcile a partial listing into the mirror, because
+    reconcile reads an empty listing as "the user archived everything". */
+export async function listAllSaves(): Promise<SavesListing> {
+  const cfg = await getStoredCfg()
+  if (!cfg) return { ok: false, message: 'Notion is not connected', items: [], hotIsLocal: true }
+  try {
+    const schema = await mapSchema(cfg.token, cfg.databaseId)
+    if (typeof schema === 'string') return { ok: false, message: schema, items: [], hotIsLocal: true }
+    const result = await collectSaves(
+      (cursor) =>
+        notionFetch(cfg.token, `/databases/${cfg.databaseId}/query`, 'POST', {
+          sorts: [{ timestamp: 'created_time', direction: 'descending' }],
+          page_size: 100,
+          ...(cursor ? { start_cursor: cursor } : {}),
+        }),
+      schema,
+    )
+    return { ...result, hotIsLocal: !schema.hotProp }
+  } catch {
+    return { ok: false, message: 'Could not reach Notion — check your connection.', items: [], hotIsLocal: true }
+  }
+}
+
+export interface SaveResult {
+  ok: boolean
+  message: string
+  pageUrl?: string
+  /** The saved page, ready to fold into the local mirror so every open
+      surface repaints. Absent when the save failed. */
+  item?: SavedItem
+}
+
 /** Creates (or detects an existing) Notion page for this URL. */
-export async function saveToNotion(input: SaveInput): Promise<{ ok: boolean; message: string; pageUrl?: string }> {
+export async function saveToNotion(input: SaveInput): Promise<SaveResult> {
   const cfg = await getStoredCfg()
   if (!cfg) return { ok: false, message: 'Notion is not set up yet — open Notion settings on the new tab.' }
   try {
@@ -222,7 +292,12 @@ export async function saveToNotion(input: SaveInput): Promise<{ ok: boolean; mes
       const hits = (q.json['results'] as Array<Record<string, unknown>> | undefined) ?? []
       if (q.ok && hits.length) {
         const first = hits[0]
-        return { ok: true, message: 'Already in Notion — opened existing page', pageUrl: first ? String(first['url'] ?? '') : undefined }
+        return {
+          ok: true,
+          message: 'Already in Notion — opened existing page',
+          pageUrl: first ? String(first['url'] ?? '') : undefined,
+          item: pageToSavedItem(first, schema) ?? undefined,
+        }
       }
     }
 
@@ -263,7 +338,12 @@ export async function saveToNotion(input: SaveInput): Promise<{ ok: boolean; mes
       }
       return { ok: false, message: `Notion refused the save: ${err.message ?? `HTTP ${r.status}`}` }
     }
-    return { ok: true, message: 'Saved to Notion 📔', pageUrl: String(r.json['url'] ?? '') }
+    return {
+      ok: true,
+      message: 'Saved to Notion 📔',
+      pageUrl: String(r.json['url'] ?? ''),
+      item: pageToSavedItem(r.json, schema) ?? undefined,
+    }
   } catch {
     return { ok: false, message: 'Could not reach Notion — check your connection.' }
   }

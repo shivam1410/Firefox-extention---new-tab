@@ -3,8 +3,31 @@
 
 import { ensureMeta } from './metadata'
 import { captureTab } from './capture'
-import { archivePage, listDatabases, listRecent, saveToNotion } from './notion'
+import {
+  archivePage,
+  listAllSaves,
+  listDatabases,
+  listRecent,
+  renamePage,
+  saveToNotion,
+  setPageHot,
+  type SaveResult,
+} from './notion'
 import { llmSummarize, setOpenRouterConfig } from './llm'
+import { collectHotUrls, type HotLibrary } from '../shared/hot-apps'
+import { upsert } from '../shared/saves-model'
+import { loadMirror, updateMirror } from '../shared/saves-store'
+
+/** Folds a freshly saved page into the local mirror. Writing the mirror is
+    what wakes every open new tab — `watchMirror` fires on the change, so a save
+    made from the toolbar popup repaints surfaces this page never knew about. */
+async function rememberSave(result: SaveResult): Promise<void> {
+  if (!result.ok || !result.item) return
+  const item = result.item
+  // serialized: saving several tabs at once must not have one write clobber
+  // the mirror another just read
+  await updateMirror((mirror) => upsert(mirror, item))
+}
 
 async function flashBadge(text: string): Promise<void> {
   await browser.action.setBadgeBackgroundColor({ color: '#1E9E5A' })
@@ -24,7 +47,7 @@ async function quickSaveToNotion(title: string, url: string): Promise<{ ok: bool
     return { ok: false, message: 'That URL can\'t be saved.' }
   }
   const result = await saveToNotion({ title: title || url, url, summary: '', images: [], domain, tags: [domain], saveType: 'Quick' })
-  if (result.ok) void browser.storage.local.set({ notionLastSave: Date.now() })
+  await rememberSave(result)
   void flashBadge(result.ok ? '✓' : '!')
   return result
 }
@@ -42,7 +65,7 @@ async function saveTabToNotion(tabId: number): Promise<{ ok: boolean; message: s
     if (ai.tags.length) captured.tags = [captured.domain, ...ai.tags.filter((t) => t.toLowerCase() !== captured.domain)]
   }
   const result = await saveToNotion(captured)
-  if (result.ok) void browser.storage.local.set({ notionLastSave: Date.now() }) // nudges open pages to refresh their Notion list
+  await rememberSave(result)
   void flashBadge(result.ok ? '✓' : '!')
   return result
 }
@@ -58,49 +81,38 @@ browser.runtime.onMessage.addListener((msg) => {
     key?: string
     model?: string
     pageId?: string
+    hot?: boolean
   }
   if (m?.type === 'notion.saveQuick' && typeof m.url === 'string') return quickSaveToNotion(m.title ?? '', m.url)
   if (m?.type === 'meta.ensure' && typeof m.url === 'string') return ensureMeta(m.url)
   if (m?.type === 'notion.listDbs' && typeof m.token === 'string') return listDatabases(m.token)
   if (m?.type === 'notion.saveTab' && typeof m.tabId === 'number') return saveTabToNotion(m.tabId)
   if (m?.type === 'notion.recent') return listRecent()
-  if (m?.type === 'notion.archive' && typeof m.pageId === 'string') return archivePage(m.pageId).then((ok) => ({ ok }))
+  if (m?.type === 'notion.list') return listAllSaves()
+  if (m?.type === 'notion.archive' && typeof m.pageId === 'string') return archivePage(m.pageId)
+  if (m?.type === 'notion.rename' && typeof m.pageId === 'string' && typeof m.title === 'string')
+    return renamePage(m.pageId, m.title)
+  if (m?.type === 'notion.setHot' && typeof m.pageId === 'string' && typeof m.hot === 'boolean')
+    return setPageHot(m.pageId, m.hot)
   if (m?.type === 'llm.setCfg')
     return setOpenRouterConfig(typeof m.key === 'string' && m.key ? { key: m.key, model: m.model ?? '' } : null).then(() => ({ ok: true }))
   return undefined
 })
 
-// Hot apps: pre-warm each 🔥 link in a background tab at browser startup,
-// deduped against tabs that are already open. No polling afterwards —
-// zero standby cost; if Firefox discards a warm tab it simply reloads
-// from cache when activated.
+// Hot apps: pre-warm each 🔥 link in a background tab at browser startup —
+// both library/grid links and Quick saves from Notion — deduped against tabs
+// that are already open. No polling afterwards — zero standby cost; if Firefox
+// discards a warm tab it simply reloads from cache when activated.
 browser.runtime.onStartup.addListener(() => {
   void warmHotTabs()
 })
 
-interface StoredNode {
-  t: 'f' | 'l'
-  url?: string
-  hot?: boolean
-  kids?: StoredNode[]
-}
-
 async function warmHotTabs(): Promise<void> {
   const box = await browser.storage.local.get('library')
-  const lib = box['library'] as { root?: StoredNode[]; grid?: StoredNode[] } | undefined
-  if (!lib) return
-  const hot: string[] = []
-  const walk = (nodes: StoredNode[] | undefined): void => {
-    for (const n of nodes ?? []) {
-      if (n.t === 'l' && n.hot && n.url) hot.push(n.url)
-      if (n.t === 'f') walk(n.kids)
-    }
-  }
-  walk(lib.grid)
-  walk(lib.root)
+  const [mirror, open] = await Promise.all([loadMirror(), browser.tabs.query({})])
+  const hot = collectHotUrls(box['library'] as HotLibrary | undefined, mirror.items)
   if (!hot.length) return
-  const open = await browser.tabs.query({})
-  for (const url of [...new Set(hot)]) {
+  for (const url of hot) {
     if (!open.some((t) => t.url === url)) await browser.tabs.create({ url, active: false })
   }
 }

@@ -6,6 +6,18 @@ interface WebExtEvent {
   removeListener(cb: () => void): void
 }
 
+/* storage.onChanged really hands the listener the changed keys and the area
+   name. Callers that only want "something changed" can still pass a zero-arg
+   function; callers that need to filter by key get the real signature. */
+interface WebExtStorageChange {
+  oldValue?: unknown
+  newValue?: unknown
+}
+interface WebExtStorageChangeEvent {
+  addListener(cb: (changes: Record<string, WebExtStorageChange>, areaName: string) => void): void
+  removeListener(cb: (changes: Record<string, WebExtStorageChange>, areaName: string) => void): void
+}
+
 interface WebExtTab {
   id?: number
   windowId?: number
@@ -56,10 +68,6 @@ declare const browser: {
     onStartup: WebExtEvent
     onInstalled: WebExtEvent
   }
-  identity: {
-    getRedirectURL(): string
-    launchWebAuthFlow(details: { url: string; interactive?: boolean }): Promise<string>
-  }
   permissions: {
     request(p: { origins: string[] }): Promise<boolean>
     contains(p: { origins: string[] }): Promise<boolean>
@@ -101,7 +109,7 @@ declare const browser: {
   storage: {
     local: WebExtStorageArea
     sync: WebExtStorageArea
-    onChanged: WebExtEvent
+    onChanged: WebExtStorageChangeEvent
   }
   history: {
     search(q: { text: string; startTime?: number; endTime?: number; maxResults?: number }): Promise<WebExtHistoryItem[]>

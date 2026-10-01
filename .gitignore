@@ -6,3 +6,4 @@ web-ext-artifacts/
 .aw/
 .aw_docs/
 .agentic-workspace/
+coverage/

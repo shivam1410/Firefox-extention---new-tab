@@ -25,7 +25,7 @@
   </div>
   <div class="hcol right">
     <aside class="hpanel" aria-label="Summarized saves">
-      <h3>📔&ensp;Summarized</h3>
+      <h3><span>📔&ensp;Summarized</span><button class="hsave" id="syncNotionBtn" title="Refresh from Notion">↻ Refresh</button></h3>
       <div class="hlist" id="homeNotion"></div>
     </aside>
     <aside class="hpanel" aria-label="Open tabs">
@@ -47,8 +47,6 @@
     <h3 class="wpop-note-h">Backup</h3>
     <div class="wpop-row"><button class="richbtn" id="exportBtn" title="Download a JSON backup of your grid, library and local saves">⬇ Export</button><button class="richbtn" id="importBtn" title="Restore from a Library Tab backup file">⬆ Import</button></div>
     <input type="file" id="importFile" accept=".json,application/json" hidden>
-    <h3 class="wpop-note-h">Cloud sync</h3>
-    <button class="richbtn" id="cloudBtn">☁ Set up cloud sync</button>
     <h3 class="wpop-note-h">Notion</h3>
     <button class="richbtn" id="notionBtn">📔 Connect Notion</button>
     <h3 class="wpop-note-h">Rich icons &amp; titles</h3>
@@ -126,44 +124,6 @@
       <button type="button" id="ntClose">Close</button>
       <button type="button" id="ntDisconnect">Disconnect</button>
       <button type="submit" class="primary" id="ntConnect">Connect</button>
-    </div>
-  </form>
-</div>
-<div class="modal" id="cloudDlg">
-  <form class="dlg" id="cloudForm">
-    <h2>☁ Cloud sync <span class="dlg-sub">your own Firebase project</span></h2>
-    <div id="cloudSetupFields">
-      <label class="dlg-field">Firebase Web API key
-        <input id="cfApiKey" type="text" autocomplete="off" placeholder="AIza…">
-      </label>
-      <label class="dlg-field">Project ID
-        <input id="cfProjectId" type="text" autocomplete="off" placeholder="my-project-id">
-      </label>
-      <label class="dlg-field">Google Web client ID <span class="dlg-opt">(for Google sign-in)</span>
-        <input id="cfGoogleId" type="text" autocomplete="off" placeholder="…apps.googleusercontent.com">
-      </label>
-      <div class="dlg-hint" id="cloudRedirect" hidden></div>
-    </div>
-    <div id="cloudCredFields">
-      <button type="button" class="gbtn" id="cloudGoogleBtn">
-        <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.5 12.3c0-.9-.1-1.5-.3-2.2H12v4.1h6.5c-.1 1.1-.8 2.7-2.4 3.8l3.7 2.9c2.3-2.1 3.7-5.1 3.7-8.6z"/><path fill="#34A853" d="M12 24c3.2 0 5.9-1.1 7.9-2.9l-3.7-2.9c-1 .7-2.4 1.2-4.2 1.2-3.1 0-5.8-2.1-6.7-5l-3.9 3C3.4 21.3 7.4 24 12 24z"/><path fill="#FBBC05" d="M5.3 14.4c-.2-.7-.4-1.5-.4-2.4s.1-1.7.4-2.4l-3.9-3C.5 8.2 0 10 0 12s.5 3.8 1.4 5.4l3.9-3z"/><path fill="#EA4335" d="M12 4.6c1.8 0 3 .8 3.7 1.4l3.3-3.2C16.9 1 14.2 0 12 0 7.4 0 3.4 2.7 1.4 6.6l3.9 3c.9-2.9 3.6-5 6.7-5z"/></svg>
-        Sign in with Google
-      </button>
-      <div class="dlg-divider">or with email &amp; password</div>
-      <label class="dlg-field">Email
-        <input id="cfEmail" type="email" autocomplete="off">
-      </label>
-      <label class="dlg-field">Password
-        <input id="cfPassword" type="password" autocomplete="off" placeholder="6+ characters">
-      </label>
-    </div>
-    <div class="dlg-status" id="cloudStatus"></div>
-    <div class="dlg-actions">
-      <button type="button" id="cloudClose">Close</button>
-      <button type="button" id="cloudSignOutBtn">Sign out</button>
-      <button type="button" id="cloudSyncNowBtn">Sync now</button>
-      <button type="button" id="cloudCreateBtn">Create account</button>
-      <button type="submit" class="primary" id="cloudSignInBtn">Sign in &amp; sync</button>
     </div>
   </form>
 </div>

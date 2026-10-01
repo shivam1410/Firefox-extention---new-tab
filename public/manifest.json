@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Library Tab",
-  "version": "0.3.4",
+  "version": "0.4.0",
   "description": "Your new tab as a personal library — manage tabs, bookmarks and history in a files-and-folders view.",
   "browser_specific_settings": {
     "gecko": {
@@ -33,6 +33,6 @@
     "96": "icons/96.png",
     "128": "icons/128.png"
   },
-  "permissions": ["storage", "unlimitedStorage", "tabs", "bookmarks", "history", "identity", "scripting"],
+  "permissions": ["storage", "unlimitedStorage", "tabs", "bookmarks", "history", "scripting"],
   "host_permissions": ["<all_urls>"]
 }

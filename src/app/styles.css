@@ -73,7 +73,9 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .tile:hover .tdel, .tile:focus-within .tdel{display:grid}
 .tile .savb{position:absolute; top:-6px; right:2px; width:20px; height:20px; border-radius:50%;
   background:var(--glass); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
-  border:1px solid var(--glass-line); display:grid; place-items:center; font-size:10px}
+  border:1px solid var(--glass-line); display:grid; place-items:center; font-size:10px;
+  cursor:pointer; padding:0; color:inherit}
+.tile .savb:hover{border-color:var(--wpink2); transform:scale(1.12)}
 .tile.folder .ic{background:var(--glass); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
   display:grid; grid-template-columns:1fr 1fr; gap:5px; padding:9px}
 .tile.folder .mini{border-radius:6px; width:100%; height:100%}
@@ -116,6 +118,12 @@ button{font:inherit; color:inherit; background:none; border:none; cursor:pointer
 .hrow.head{color:var(--wpink2); font-weight:650}
 .hrow.indent{margin-left:16px}
 .hempty{color:var(--wpink2); font-size:12px; padding:6px 10px}
+.migbar{display:flex; align-items:center; gap:8px; justify-content:space-between; margin:0 0 6px;
+  padding:7px 10px; border-radius:9px; font-size:11.5px; color:var(--text2);
+  background:color-mix(in srgb, var(--wpink) 10%, transparent);
+  border:1px solid color-mix(in srgb, var(--wpink) 26%, transparent)}
+.migbar span{line-height:1.35}
+.migbar button{flex:none}
 /* Narrow windows: side panels reflow below the grid instead of hiding.
    Compact the top section so the panels stay above the fold. */
 @media (max-width:1240px){

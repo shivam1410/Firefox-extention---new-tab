@@ -11,6 +11,7 @@ removing a save *archives* the Notion page rather than deleting it. See
 
 - **[docs/SETUP.md](docs/SETUP.md)** — connecting Notion, AI keys (Anthropic/OpenRouter),
   rich icons, backups, and how the save model works
+- **[CHANGELOG.md](CHANGELOG.md)** — what changed in each released version
 - **[docs/RELEASING.md](docs/RELEASING.md)** — the full release runbook (package → AMO
   signing → GitHub release), golden rules, and troubleshooting
 

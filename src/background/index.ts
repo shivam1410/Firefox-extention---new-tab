@@ -39,7 +39,7 @@ async function flashBadge(text: string): Promise<void> {
 
 /** Quick save: a lightweight Notion page — title, link, domain tag, date.
     No capture, no AI; works on any page and returns in ~a second. */
-async function quickSaveToNotion(title: string, url: string): Promise<{ ok: boolean; message: string; pageUrl?: string }> {
+async function quickSaveToNotion(title: string, url: string, favicon?: string): Promise<{ ok: boolean; message: string; pageUrl?: string }> {
   let domain = ''
   try {
     domain = new URL(url).host.replace(/^www\./, '')
@@ -47,6 +47,9 @@ async function quickSaveToNotion(title: string, url: string): Promise<{ ok: bool
     return { ok: false, message: 'That URL can\'t be saved.' }
   }
   const result = await saveToNotion({ title: title || url, url, summary: '', images: [], domain, tags: [domain], saveType: 'Quick' })
+  // Notion has no favicon field, so the tab's own icon is kept on the local
+  // row — otherwise tiles fall back to a letter monogram
+  if (result.item && favicon) result.item.favicon = favicon
   await rememberSave(result)
   void flashBadge(result.ok ? '✓' : '!')
   return result
@@ -82,8 +85,10 @@ browser.runtime.onMessage.addListener((msg) => {
     model?: string
     pageId?: string
     hot?: boolean
+    favicon?: string
   }
-  if (m?.type === 'notion.saveQuick' && typeof m.url === 'string') return quickSaveToNotion(m.title ?? '', m.url)
+  if (m?.type === 'notion.saveQuick' && typeof m.url === 'string')
+    return quickSaveToNotion(m.title ?? '', m.url, typeof m.favicon === 'string' ? m.favicon : undefined)
   if (m?.type === 'meta.ensure' && typeof m.url === 'string') return ensureMeta(m.url)
   if (m?.type === 'notion.listDbs' && typeof m.token === 'string') return listDatabases(m.token)
   if (m?.type === 'notion.saveTab' && typeof m.tabId === 'number') return saveTabToNotion(m.tabId)

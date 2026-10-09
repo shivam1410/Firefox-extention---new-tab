@@ -19,6 +19,9 @@
   "chrome_url_overrides": {
     "newtab": "app.html"
   },
+  "chrome_settings_overrides": {
+    "homepage": "app.html"
+  },
   "action": {
     "default_title": "Library Tab",
     "default_popup": "popup.html",

@@ -46,9 +46,12 @@ el<HTMLButtonElement>('#pQuick').addEventListener('click', () => {
       return
     }
     setStatus('Saving to Notion…', 'busy')
-    const r = (await api.runtime.sendMessage({ type: 'notion.saveQuick', title: t.title ?? '', url: t.url ?? '' })) as
-      | { ok: boolean; message: string }
-      | undefined
+    const r = (await api.runtime.sendMessage({
+      type: 'notion.saveQuick',
+      title: t.title ?? '',
+      url: t.url ?? '',
+      favicon: t.favIconUrl,
+    })) as { ok: boolean; message: string } | undefined
     setStatus(r?.message ?? 'No response — try again.', r?.ok ? 'ok' : 'err')
   })()
 })

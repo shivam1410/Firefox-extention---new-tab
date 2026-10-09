@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Library Tab",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Your new tab as a personal library — manage tabs, bookmarks and history in a files-and-folders view.",
   "browser_specific_settings": {
     "gecko": {
@@ -18,6 +18,9 @@
   },
   "chrome_url_overrides": {
     "newtab": "app.html"
+  },
+  "chrome_settings_overrides": {
+    "homepage": "app.html"
   },
   "action": {
     "default_title": "Library Tab",

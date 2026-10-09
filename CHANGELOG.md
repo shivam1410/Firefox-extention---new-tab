@@ -4,6 +4,35 @@ All notable changes to Library Tab. Versions follow the extension's
 `manifest.json`, and each released version is tagged and attached to a
 [GitHub release](https://github.com/shivam1410/Firefox-extention---new-tab/releases).
 
+## [0.4.1] — 2026-10-09
+
+### Added
+
+- **Type and press Enter.** The home search preselects the first result; ↑/↓ move
+  through the list (wrapping, and the caret stays where it is), Enter opens the
+  selected one, Escape closes. Hovering with the mouse moves the selection too.
+- **Start page.** `chrome_settings_overrides.homepage` lets the new tab also be
+  the page Firefox opens on startup. Firefox will ask you to allow the change,
+  and it only applies when **Settings → General → Startup** is *not* set to
+  "Open previous windows and tabs" — session restore wins over any extension.
+
+### Fixed
+
+- **Saved pages ranked last in search.** Results were gathered in source order,
+  which put Notion saves behind open tabs, bookmarks and history — so the pages
+  you deliberately kept were the ones cut by the 7-result limit. Saves now rank
+  first, then your library, then browser data.
+- **Saved tiles showed letter monograms instead of real icons.** Notion has no
+  favicon field and the local row never captured one, leaving only the opt-in
+  rich-icon pipeline to fill them in. The tab's own icon now travels with the
+  save — from the popup, quick save, save-all and the migration — and stays on
+  the local row across refreshes.
+
+### Known limitations
+
+- Saves made before 0.4.1 keep their monogram unless rich icons are enabled;
+  only new saves capture an icon.
+
 ## [0.4.0] — 2026-10-01
 
 **Notion becomes the source of truth for saves.** Every save is a page in your own

@@ -318,7 +318,7 @@ async function migrateLegacySaves(btn: HTMLButtonElement): Promise<void> {
       toast('Could not reach Notion — nothing was moved')
       return
     }
-    const rows = legacyPending.map((r) => ({ title: r.title, url: r.url }))
+    const rows = legacyPending.map((r) => ({ title: r.title, url: r.url, favicon: r.favicon }))
     if (!rows.length) {
       // verified live: every stranded row really is in Notion already
       await clearLegacySaves()
@@ -794,14 +794,17 @@ const NOTION_WRITE_GAP_MS = 350
 
 /** Pushes rows into Notion one at a time, deduped server-side by URL.
     Used by "save all open tabs" and by restoring a backup. */
-async function pushSavesToNotion(rows: Array<{ title: string; url: string }>): Promise<{ added: number; failed: number }> {
+async function pushSavesToNotion(rows: Array<{ title: string; url: string; favicon?: string }>): Promise<{ added: number; failed: number }> {
   let added = 0
   let failed = 0
   for (const [i, row] of rows.entries()) {
     if (i) await new Promise((done) => window.setTimeout(done, NOTION_WRITE_GAP_MS))
-    const r = (await extApi?.runtime.sendMessage({ type: 'notion.saveQuick', title: row.title, url: row.url })) as
-      | { ok: boolean; message: string }
-      | undefined
+    const r = (await extApi?.runtime.sendMessage({
+      type: 'notion.saveQuick',
+      title: row.title,
+      url: row.url,
+      favicon: row.favicon,
+    })) as { ok: boolean; message: string } | undefined
     if (!r?.ok) failed++
     else if (!r.message.startsWith('Already')) added++
   }
@@ -816,9 +819,12 @@ function saveTabAndShow(t: { title: string; url: string; favicon?: string }): vo
       return
     }
     toast('Saving to Notion…')
-    const r = (await extApi.runtime.sendMessage({ type: 'notion.saveQuick', title: t.title, url: t.url })) as
-      | { ok: boolean; message: string }
-      | undefined
+    const r = (await extApi.runtime.sendMessage({
+      type: 'notion.saveQuick',
+      title: t.title,
+      url: t.url,
+      favicon: t.favicon,
+    })) as { ok: boolean; message: string } | undefined
     toast(r?.message ?? 'No response — try again')
   })()
 }
@@ -958,7 +964,7 @@ el<HTMLButtonElement>('#saveAllBtn').addEventListener('click', () => {
       return
     }
     toast(`Saving ${tabs.length} tab${tabs.length > 1 ? 's' : ''} to Notion…`)
-    const { added, failed } = await pushSavesToNotion(tabs.map((t) => ({ title: t.title, url: t.url })))
+    const { added, failed } = await pushSavesToNotion(tabs.map((t) => ({ title: t.title, url: t.url, favicon: t.favicon })))
     if (failed) toast(`Saved ${added}, but ${failed} failed — check the Notion connection`)
     else toast(added ? `Saved ${added} tab${added > 1 ? 's' : ''} to Notion 📔` : 'All open tabs were already saved')
   })()
@@ -1355,9 +1361,13 @@ interface Hit {
   n: LinkNode
   src: string
 }
+/* Search order: what you deliberately kept beats what the browser happens to
+   have. Object.values(SOURCES) put Notion last, so saves lost to history. */
+const SEARCH_ORDER: SourceKey[] = ['notion', 'library', 'tabs', 'bookmarks', 'history']
+
 function allLinks(): Hit[] {
   const out: Hit[] = []
-  for (const s of Object.values(SOURCES)) {
+  for (const s of SEARCH_ORDER.map((k) => SOURCES[k])) {
     const walk = (l: TreeNode[]): void => {
       for (const n of l) {
         if (n.type === 'link') out.push({ n, src: s.label })
@@ -1369,16 +1379,40 @@ function allLinks(): Hit[] {
   return out
 }
 const homeQ = el<HTMLInputElement>('#homeQ')
+const homeR = el<HTMLDivElement>('#homeR')
+let homeHits: Hit[] = []
+let homeSel = 0
+
+function closeHomeResults(): void {
+  homeR.classList.remove('on')
+  homeR.innerHTML = ''
+  homeHits = []
+  homeSel = 0
+}
+
+function paintHomeSel(): void {
+  homeR.querySelectorAll<HTMLButtonElement>('button.r').forEach((b, i) => {
+    b.classList.toggle('sel', i === homeSel)
+    if (i === homeSel) b.scrollIntoView({ block: 'nearest' })
+  })
+}
+
+function openHomeHit(i: number): void {
+  const hit = homeHits[i]
+  if (!hit) return
+  closeHomeResults()
+  homeQ.value = ''
+  openNode(hit.n, 'here')
+}
+
 homeQ.addEventListener('input', () => {
   const q = homeQ.value.trim().toLowerCase()
-  const box = el<HTMLDivElement>('#homeR')
   if (!q) {
-    box.classList.remove('on')
-    box.innerHTML = ''
+    closeHomeResults()
     return
   }
   const seen = new Set<string>()
-  const hits = allLinks()
+  homeHits = allLinks()
     .filter((x) => x.n.title.toLowerCase().includes(q) || x.n.url.toLowerCase().includes(q))
     .filter((x) => {
       const key = `${x.src}|${x.n.url}`
@@ -1387,20 +1421,42 @@ homeQ.addEventListener('input', () => {
       return true
     })
     .slice(0, 7)
-  box.innerHTML = hits.length
-    ? hits.map((x) => `<button class="r">${iconHTML(x.n)}<span class="ttl">${esc(x.n.title)}</span><span class="src">${x.src}</span></button>`).join('')
+  homeSel = 0
+  homeR.innerHTML = homeHits.length
+    ? homeHits
+        .map((x) => `<button class="r">${iconHTML(x.n)}<span class="ttl">${esc(x.n.title)}</span><span class="src">${x.src}</span></button>`)
+        .join('')
     : '<span class="r none">No matches</span>'
-  box.classList.add('on')
-  box.querySelectorAll<HTMLButtonElement>('button.r').forEach((b, i) =>
-    b.addEventListener('click', () => {
-      const hit = hits[i]
-      box.classList.remove('on')
-      homeQ.value = ''
-      if (hit) openNode(hit.n, 'here')
-    }),
-  )
+  homeR.classList.add('on')
+  homeR.querySelectorAll<HTMLButtonElement>('button.r').forEach((b, i) => {
+    b.addEventListener('click', () => openHomeHit(i))
+    b.addEventListener('mousemove', () => {
+      if (homeSel === i) return
+      homeSel = i
+      paintHomeSel()
+    })
+  })
+  paintHomeSel()
 })
-homeQ.addEventListener('blur', () => window.setTimeout(() => el<HTMLDivElement>('#homeR').classList.remove('on'), 150))
+
+homeQ.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && homeHits.length) {
+    e.preventDefault()
+    openHomeHit(homeSel)
+    return
+  }
+  if (e.key === 'Escape') {
+    closeHomeResults()
+    return
+  }
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+  if (!homeHits.length) return
+  e.preventDefault() // keep the caret put while arrowing the list
+  homeSel = (homeSel + (e.key === 'ArrowDown' ? 1 : homeHits.length - 1)) % homeHits.length
+  paintHomeSel()
+})
+
+homeQ.addEventListener('blur', () => window.setTimeout(closeHomeResults, 150))
 
 /* ---------- EXPLORER: sidebar ---------- */
 function renderSidebar(): void {

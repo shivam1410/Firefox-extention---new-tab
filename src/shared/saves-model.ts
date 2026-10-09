@@ -167,3 +167,20 @@ export function syncSummary(beforeIds: string[], afterIds: string[]): string {
   if (archived) parts.push(`${archived} archived`)
   return `Synced with Notion — ${parts.join(', ')}`
 }
+
+/** Fills in missing favicons from whatever the caller can find, leaving rows
+    that already have one untouched.
+
+    Returns the SAME mirror object when nothing changed, so callers can skip a
+    pointless storage write (and the repaint it would wake). */
+export function withFavicons(m: SavesMirror, pick: (item: SavedItem) => string | undefined): SavesMirror {
+  let changed = false
+  const items = m.items.map((i) => {
+    if (i.favicon) return i
+    const favicon = pick(i)
+    if (!favicon) return i
+    changed = true
+    return { ...i, favicon }
+  })
+  return changed ? { ...m, items } : m
+}

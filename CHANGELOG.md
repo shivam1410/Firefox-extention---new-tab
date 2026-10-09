@@ -4,6 +4,23 @@ All notable changes to Library Tab. Versions follow the extension's
 `manifest.json`, and each released version is tagged and attached to a
 [GitHub release](https://github.com/shivam1410/Firefox-extention---new-tab/releases).
 
+## [0.4.2] — 2026-10-09
+
+### Fixed
+
+- **Saves made before 0.4.1 kept their letter monogram.** Only new saves captured
+  an icon, so everything older stayed a coloured initial. Existing saves now
+  borrow an icon on startup from what this device already knows — the rich-icon
+  cache, or an open tab on the same site — and the result is stored with the
+  save, so it survives refreshes rather than being worked out again on every
+  page load.
+
+### Known limitations
+
+- A save whose site is not open anywhere, and that the rich-icon pipeline has
+  not already fetched, still shows a monogram. Enabling **Wallpaper → ✨ Rich
+  icons** fills those in.
+
 ## [0.4.1] — 2026-10-09
 
 ### Added

@@ -9,6 +9,7 @@ import {
   restoreRow,
   syncSummary,
   upsert,
+  withFavicons,
   type LegacySave,
   type SavedItem,
   type SavesMirror,
@@ -341,5 +342,37 @@ describe('upsert ordering', () => {
     const m = mirror([item('a', { createdAt: 10 })])
     const after = upsert(m, item('fresh', { createdAt: 999 }))
     expect(after.items.map((i) => i.pageId)).toEqual(['fresh', 'a'])
+  })
+})
+
+describe('withFavicons', () => {
+  const icon = (i: SavedItem): string | undefined => (i.pageId === 'a' ? 'icon-a' : undefined)
+
+  it('fills a row that has no favicon', () => {
+    const after = withFavicons(mirror([item('a')]), () => 'found')
+    expect(after.items[0]?.favicon).toBe('found')
+  })
+
+  it('leaves a row that already has one alone', () => {
+    const after = withFavicons(mirror([item('a', { favicon: 'kept' })]), () => 'other')
+    expect(after.items[0]?.favicon).toBe('kept')
+  })
+
+  it('fills only the rows a lookup can answer for', () => {
+    const after = withFavicons(mirror([item('a'), item('b')]), icon)
+    expect(after.items.map((i) => i.favicon)).toEqual(['icon-a', undefined])
+  })
+
+  it('returns the same object when nothing changed, so callers skip the write', () => {
+    const m = mirror([item('a', { favicon: 'kept' })])
+    expect(withFavicons(m, () => undefined)).toBe(m)
+    expect(withFavicons(m, () => 'ignored')).toBe(m)
+  })
+
+  it('does not mutate the input', () => {
+    const m = mirror([item('a')])
+    const snapshot = structuredClone(m)
+    withFavicons(m, () => 'found')
+    expect(m).toEqual(snapshot)
   })
 })

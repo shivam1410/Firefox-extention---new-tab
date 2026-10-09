@@ -27,6 +27,7 @@ import {
   reconcile,
   restoreRow,
   syncSummary,
+  withFavicons,
   type LegacySave,
   type SavedItem,
   type SavesMirror,
@@ -579,8 +580,35 @@ function iconHTML(n: TreeNode): string {
   return `<span class="fic" style="background:${m.bg}">${m.ch}</span>`
 }
 /* after painting, ask the background pipeline for any icons we lack */
+/** Open tabs are the only live source that carries a real favicon; index them
+    by host so a save can borrow one from a tab on the same site. */
+function tabIconsByHost(): Map<string, string> {
+  const out = new Map<string, string>()
+  for (const win of SOURCES.tabs.root) {
+    if (win.type !== 'folder') continue
+    for (const t of win.children) {
+      const host = t.type === 'link' && t.favicon ? fmtHost(t.url) : ''
+      if (host && !out.has(host)) out.set(host, t.favicon as string)
+    }
+  }
+  return out
+}
+
+/** Saves made before icons were captured at save time have none of their own.
+    Fill them from what this device already knows — the rich-icon cache, or an
+    open tab on the same host — and persist, so it survives refreshes instead of
+    being re-derived on every page load. */
+async function backfillSaveIcons(): Promise<void> {
+  if (!mirror.items.some((i) => !i.favicon)) return
+  const byHost = tabIconsByHost()
+  const pick = (i: SavedItem): string | undefined => i.favicon ?? iconFor(i.url) ?? byHost.get(fmtHost(i.url))
+  if (withFavicons(mirror, pick) === mirror) return // nothing to fill; skip the write
+  paintMirror(await updateMirror((m) => withFavicons(m, pick)))
+}
+
 const iconArrived = debounce(() => {
   if (isEditing()) return
+  void backfillSaveIcons()
   renderHome()
   if (location.hash.startsWith('#/explorer')) renderExplorer()
   else renderHomePanels()
@@ -2100,6 +2128,7 @@ watchMirror((next) => {
 })
 void refreshSaves()
   .then(refreshLegacyBanner)
+  .then(backfillSaveIcons) // mirror is loaded now; tabs may or may not be yet
   .then(() => {
     if (!location.hash.startsWith('#/explorer')) renderHomePanels()
   })
@@ -2112,6 +2141,7 @@ watchLibrary(() => {
 })
 void reloadLibraryFromStore()
 void Promise.all([refreshSource('tabs'), refreshSource('bookmarks'), refreshSource('history'), refreshSource('notion')]).then(() => {
+  void backfillSaveIcons() // open tabs are loaded now, so their icons are available to borrow
   if (location.hash.startsWith('#/explorer')) renderExplorer()
   else renderHomePanels()
 })

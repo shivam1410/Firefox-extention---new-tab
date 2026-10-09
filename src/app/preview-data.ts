@@ -29,7 +29,7 @@ export const PREVIEW_LIBRARY: TreeNode[] = [
 export const PREVIEW_TABS: TreeNode[] = [
   F('Window 1', [
     L('PR #4128 — library core', 'https://github.com/ghl/pull/4128', { when: 'open' }),
-    L('Hacker News', 'https://news.ycombinator.com', { when: 'open' }),
+    L('Hacker News', 'https://news.ycombinator.com', { when: 'open', favicon: 'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%208%208%22%3E%3Crect%20width%3D%228%22%20height%3D%228%22%20fill%3D%22%23ff6600%22/%3E%3C/svg%3E' }),
   ]),
 ]
 
